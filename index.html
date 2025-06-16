@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Serene Koi Pond</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; -webkit-user-select: none; user-select: none; font-family: 'Avenir', 'Helvetica Neue', 'Segoe UI', sans-serif; }
+        canvas { display: block; background: #0f3c3c; cursor: pointer; }
+        .ui-container { position: absolute; top: 15px; left: 15px; z-index: 10; display: flex; gap: 10px; }
+        .ui-button { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
+        .ui-button:hover { background: rgba(0,0,0,0.6); }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; justify-content: center; align-items: center; z-index: 20; }
+        .modal-content { background: #1a202c; color: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); }
+        .modal-content h2 { margin-top: 0; font-weight: 500; }
+        .modal-content p { color: #a0aec0; line-height: 1.6; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; }
+        .modal-content input, .modal-content textarea { width: 100%; background: #2d3748; border: 1px solid #4a5568; border-radius: 8px; padding: 10px; color: white; margin-bottom: 15px; box-sizing: border-box; }
+        .modal-content .color-picker-container { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+        .modal-content input[type="color"] { padding: 0; width: 40px; height: 40px; border-radius: 8px; border: none; cursor: pointer; }
+        .modal-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; }
+        #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 18px; }
+    </style>
+</head>
+<body>
+    <div id="uiContainer" class="ui-container">
+        <button id="addTaskButton" class="ui-button">Add Task</button>
+        <button id="saveTasksButton" class="ui-button">Save Tasks</button>
+    </div>
+
+    <!-- Modals -->
+    <div id="addTaskModal" class="modal-overlay">
+        <div class="modal-content">
+            <h2>New Task</h2>
+            <input id="taskTitle" type="text" placeholder="Task Label (max 10 chars)" maxlength="10">
+            <textarea id="taskText" rows="4" placeholder="Full Task Description..."></textarea>
+            <div class="color-picker-container">
+                <label for="flagColor">Flag Color:</label>
+                <input id="flagColor" type="color" value="#ff6b6b">
+            </div>
+            <div class="modal-actions">
+                <button id="cancelTaskButton" class="ui-button">Cancel</button>
+                <button id="submitTaskButton" class="ui-button">Create</button>
+            </div>
+        </div>
+    </div>
+    <div id="viewTaskModal" class="modal-overlay"> <div class="modal-content"> <h2 id="viewTaskTitle"></h2> <p id="viewTaskText"></p> <div class="modal-actions"> <button id="closeViewButton" class="ui-button">Close</button> <button id="destroyTaskButton" class="ui-button">Complete</button> </div> </div> </div>
+
+    <div id="loader">Loading pond...</div>
+    <canvas id="pond"></canvas>
+    <script>
+        const canvas = document.getElementById('pond');
+        const ctx = canvas.getContext('2d');
+        const loader = document.getElementById('loader');
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        // --- Configuration ---
+        const POND_CONFIG = { NUM_KOI: 11, NUM_LILIES: 32, NUM_DRAGONFLIES: 5 };
+        const KOI_CONFIG = { spriteWidth: 45, spriteHeight: 0, turnSpeed: 0.05, speed: 2.5, targetReachedThreshold: 30, animationSpeed: 100, collisionRadius: 40 };
+        const DRAGONFLY_CONFIG = { spriteWidth: 50, spriteHeight: 0, speed: 4, turnSpeed: 0.1 };
+        const TASK_CONFIG = { width: 60, height: 60, collisionRadius: 40 };
+        const RIPPLE_CONFIG = { maxCount: 100, lineWidth: 1.5 };
+        const WANDER_CONFIG = { idleTime: 500 };
+
+        // --- State ---
+        let koi_school = [], waterLilies = [], dragonflies = [], bottomShapes = [], tasks = [];
+        let ripples = [], lastUserInteractionTime = 0;
+        let masterTarget = { x: width / 2, y: height / 2 };
+
+        // --- Asset Management ---
+        const koiFrames = [], lilyFrames = [], dragonflyFrames = [];
+        let taskImage = new Image();
+        let useKoiSprites = true, useLilySprites = true, useDragonflySprites = true, useTaskSprite = true;
+
+        const koiFrameSources = [ 'sprite_basic_koi0.png', 'sprite_basic_koi1.png', 'sprite_basic_koi2.png', 'sprite_basic_koi3.png', 'sprite_basic_koi4.png', 'sprite_basic_koi5.png', 'sprite_basic_koi6.png' ];
+        const lilyFrameSources = [ 'water_lily_0.png', 'water_lily_1.png', 'water_lily_2.png', 'water_lily_3.png' ];
+        const dragonflyFrameSources = [ 'dragonfly0.png', 'dragonfly1.png', 'dragonfly2.png', 'dragonfly3.png' ];
+
+        // --- UI Elements ---
+        const addTaskButton = document.getElementById('addTaskButton');
+        const saveTasksButton = document.getElementById('saveTasksButton');
+        const addTaskModal = document.getElementById('addTaskModal');
+        const cancelTaskButton = document.getElementById('cancelTaskButton');
+        const submitTaskButton = document.getElementById('submitTaskButton');
+        const taskTitleInput = document.getElementById('taskTitle');
+        const taskTextInput = document.getElementById('taskText');
+        const flagColorInput = document.getElementById('flagColor');
+        const viewTaskModal = document.getElementById('viewTaskModal');
+        const viewTaskTitle = document.getElementById('viewTaskTitle');
+        const viewTaskText = document.getElementById('viewTaskText');
+        const closeViewButton = document.getElementById('closeViewButton');
+        const destroyTaskButton = document.getElementById('destroyTaskButton');
+        let activeTask = null;
+        
+        // --- Rendering & Update Functions (abbreviated) ---
+        const causticCanvas = document.createElement('canvas'); const causticCtx = causticCanvas.getContext('2d'); const causticSize = 256; causticCanvas.width = causticSize; causticCanvas.height = causticSize;
+        function createCausticPattern(){for(let i=0;i<50;i++){causticCtx.fillStyle=`rgba(255,255,255,${Math.random()*0.05})`;causticCtx.beginPath();causticCtx.arc(Math.random()*causticSize,Math.random()*causticSize,Math.random()*30+10,0,Math.PI*2);causticCtx.fill()}}createCausticPattern();
+        function drawWaterShine(time){ctx.save();ctx.globalCompositeOperation='soft-light';ctx.globalAlpha=0.4+Math.sin(time/2000)*0.2;const scale=1.5+Math.sin(time/1500)*0.2;const offsetX=Math.sin(time/2500)*width*0.2;const offsetY=Math.cos(time/2200)*height*0.2;ctx.translate(offsetX,offsetY);ctx.drawImage(causticCanvas,-width/2*scale,-height/2*scale,width*scale,height*scale);ctx.restore()}
+        function drawBottomShapes(){bottomShapes.forEach(shape=>{ctx.fillStyle=shape.color;ctx.beginPath();ctx.arc(shape.x,shape.y,shape.radius,0,2*Math.PI);ctx.fill()})}
+        function createTouchRipple(x,y){for(let i=0;i<5;i++){if(ripples.length<RIPPLE_CONFIG.maxCount){ripples.push({x:x+(Math.random()-0.5)*50,y:y+(Math.random()-0.5)*50,radius:Math.random()*10,alpha:1,speed:Math.random()*0.5+0.5})}}}
+        function drawAndUpdateRipples(){ctx.lineWidth=RIPPLE_CONFIG.lineWidth;ripples.forEach((r,i)=>{r.radius+=r.speed;r.alpha-=0.01;if(r.alpha<=0){ripples.splice(i,1);return}ctx.beginPath();ctx.arc(r.x,r.y,r.radius,0,Math.PI*2);ctx.strokeStyle=`rgba(220,230,255,${r.alpha*0.7})`;ctx.stroke()})}
+        
+        async function loadData() {
+            const fetchTasks = fetch('tasks.json').then(response => { if (!response.ok) throw new Error('Tasks file not found'); return response.json(); }).then(loadedTasks => { loadedTasks.forEach(t => { t.vx = t.vx || 0; t.vy = t.vy || 0; t.sinking = t.sinking || false; t.alpha = t.alpha || 1; t.scale = t.scale || 1; }); tasks.push(...loadedTasks); }).catch(error => { console.log("No tasks.json found, starting fresh."); });
+            const loadImage = src => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = src; });
+            const assetPromises = [fetchTasks];
+            koiFrameSources.forEach(src => assetPromises.push(loadImage(src).then(img => koiFrames.push(img)).catch(() => useKoiSprites = false)));
+            lilyFrameSources.forEach(src => assetPromises.push(loadImage(src).then(img => lilyFrames.push(img)).catch(() => useLilySprites = false)));
+            dragonflyFrameSources.forEach(src => assetPromises.push(loadImage(src).then(img => dragonflyFrames.push(img)).catch(() => useDragonflySprites = false)));
+            assetPromises.push(loadImage('square.png').then(img => taskImage = img).catch(() => useTaskSprite = false));
+            await Promise.allSettled(assetPromises);
+            if (useKoiSprites && koiFrames.length > 0) { KOI_CONFIG.spriteHeight = KOI_CONFIG.spriteWidth * (koiFrames[0].naturalHeight / koiFrames[0].naturalWidth); }
+            if (useDragonflySprites && dragonflyFrames.length > 0) { DRAGONFLY_CONFIG.spriteHeight = DRAGONFLY_CONFIG.spriteWidth * (dragonflyFrames[0].naturalHeight / dragonflyFrames[0].naturalWidth); }
+            loader.style.display = 'none';
+            init();
+        }
+
+        // --- Drawing ---
+        function drawSimpleKoi(k){ctx.save();ctx.translate(k.x,k.y);ctx.rotate(k.angle);const time=performance.now()/150;const tailFlap=Math.sin(time+k.animOffset)*0.6;const bodyLength=KOI_CONFIG.spriteWidth*0.8;const bodyWidth=bodyLength*0.5;ctx.fillStyle=k.color;ctx.save();ctx.translate(-bodyLength/2,0);ctx.rotate(tailFlap);ctx.beginPath();ctx.moveTo(0,-4);ctx.lineTo(-20,-12);ctx.lineTo(-20,12);ctx.lineTo(0,4);ctx.closePath();ctx.fill();ctx.restore();ctx.beginPath();ctx.ellipse(0,0,bodyLength/2,bodyWidth/2,0,0,2*Math.PI);ctx.fill();ctx.restore()}
+        function drawKoi(k){if(useKoiSprites&&koiFrames.length>0&&KOI_CONFIG.spriteHeight>0){ctx.save();ctx.translate(k.x,k.y);ctx.rotate(k.angle+Math.PI/2);const frameIndex=Math.floor((performance.now()+k.animOffset*500)/KOI_CONFIG.animationSpeed)%koiFrames.length;const frame=koiFrames[frameIndex];ctx.drawImage(frame,-KOI_CONFIG.spriteWidth/2,-KOI_CONFIG.spriteHeight/2,KOI_CONFIG.spriteWidth,KOI_CONFIG.spriteHeight);ctx.restore()}else{drawSimpleKoi(k)}}
+        function drawSimpleLily(lily){ctx.fillStyle='#2e6b2e';ctx.beginPath();ctx.arc(lily.x,lily.y,lily.width/2,0,Math.PI*2);ctx.fill()}
+        function drawLilies(){waterLilies.forEach(lily=>{if(useLilySprites&&lilyFrames.length>0){const frame=lilyFrames[lily.type];if(frame&&frame.complete&&frame.naturalWidth>0){const aspectRatio=frame.naturalHeight/frame.naturalWidth;const drawHeight=lily.width*aspectRatio;ctx.drawImage(frame,lily.x-lily.width/2,lily.y-drawHeight/2,lily.width,drawHeight)}else{drawSimpleLily(lily)}}else{drawSimpleLily(lily)}})}
+        function drawSimpleDragonfly(d){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle);const wingFlap=Math.sin(performance.now()/50+d.animOffset)*5;ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(-15,-1,30,2);ctx.fillStyle='rgba(200,200,255,0.6)';ctx.fillRect(-10,-3-wingFlap,20,3);ctx.fillRect(-10,1+wingFlap,20,3);ctx.restore()}
+        function drawDragonflies(){dragonflies.forEach(d=>{if(useDragonflySprites&&dragonflyFrames.length>0&&DRAGONFLY_CONFIG.spriteHeight>0){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle+Math.PI/2);const frameIndex=Math.floor((performance.now()+d.animOffset*500)/100)%dragonflyFrames.length;const frame=dragonflyFrames[frameIndex];ctx.drawImage(frame,-DRAGONFLY_CONFIG.spriteWidth/2,-DRAGONFLY_CONFIG.spriteHeight/2,DRAGONFLY_CONFIG.spriteWidth,DRAGONFLY_CONFIG.spriteHeight);ctx.restore()}else{drawSimpleDragonfly(d)}})}
+        
+        function drawTask(task) {
+            ctx.save();
+            ctx.globalAlpha = task.alpha;
+            ctx.translate(task.x, task.y);
+            ctx.rotate(task.angle);
+            const w = TASK_CONFIG.width * task.scale;
+            const h = TASK_CONFIG.height * task.scale;
+            if (useTaskSprite && taskImage.complete && taskImage.naturalWidth > 0) {
+                ctx.drawImage(taskImage, -w / 2, -h / 2, w, h);
+            } else {
+                ctx.fillStyle = 'rgba(139, 69, 19, 0.8)'; ctx.strokeStyle = 'rgba(101, 53, 15, 0.9)'; ctx.lineWidth = 3; ctx.strokeRect(-w / 2, -h / 2, w, h); ctx.fillRect(-w / 2, -h / 2, w, h);
+            }
+            const flagPoleHeight = h * 0.8, flagWidth = w * 1.2, flagHeight = h * 0.5;
+            ctx.fillStyle = '#666'; ctx.fillRect(w/2 - 2, -h/2 - flagPoleHeight, 4, flagPoleHeight);
+            ctx.fillStyle = task.flagColor; ctx.beginPath(); ctx.moveTo(w/2, -h/2 - flagPoleHeight); ctx.lineTo(w/2 + flagWidth, -h/2 - flagPoleHeight); ctx.lineTo(w/2 + flagWidth, -h/2 - flagPoleHeight + flagHeight); ctx.lineTo(w/2, -h/2 - flagPoleHeight + flagHeight); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `bold ${flagHeight * 0.5}px sans-serif`; ctx.fillText(task.title, w/2 + flagWidth / 2, -h/2 - flagPoleHeight + flagHeight / 2);
+            ctx.restore();
+        }
+
+        // --- Update Logic ---
+        function updateKoi(k,index,allKoi){for(let i=index+1;i<allKoi.length;i++){const other=allKoi[i];const dx=other.x-k.x,dy=other.y-k.y,dist=Math.sqrt(dx*dx+dy*dy),minDist=KOI_CONFIG.collisionRadius;if(dist<minDist){const angle=Math.atan2(dy,dx),overlap=minDist-dist,pushX=Math.cos(angle)*overlap*0.5,pushY=Math.sin(angle)*overlap*0.5;k.vx-=pushX;k.vy-=pushY;other.vx+=pushX;other.vy+=pushY}}let dx_t=k.target.x-k.x,dy_t=k.target.y-k.y,dist_t=Math.sqrt(dx_t*dx_t+dy_t*dy_t);if(dist_t<KOI_CONFIG.targetReachedThreshold){if(performance.now()-lastUserInteractionTime>WANDER_CONFIG.idleTime){k.target={x:Math.random()*width,y:Math.random()*height}}}if(dist_t>1){let tA=Math.atan2(dy_t,dx_t),aD=tA-k.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;k.angle+=aD*KOI_CONFIG.turnSpeed;k.vx+=Math.cos(k.angle)*KOI_CONFIG.speed*0.05;k.vy+=Math.sin(k.angle)*KOI_CONFIG.speed*0.05}k.vx*=0.96;k.vy*=0.96;let s=Math.sqrt(k.vx*k.vx+k.vy*k.vy);if(s>KOI_CONFIG.speed){k.vx=(k.vx/s)*KOI_CONFIG.speed;k.vy=(k.vy/s)*KOI_CONFIG.speed}k.x+=k.vx;k.y+=k.vy}
+        function updateDragonfly(d){let dx=d.target.x-d.x,dy=d.target.y-d.y;if(Math.sqrt(dx*dx+dy*dy)<50){d.target={x:Math.random()*width,y:Math.random()*height}}let tA=Math.atan2(dy,dx),aD=tA-d.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;d.angle+=aD*DRAGONFLY_CONFIG.turnSpeed;d.x+=Math.cos(d.angle)*DRAGONFLY_CONFIG.speed;d.y+=Math.sin(d.angle)*DRAGONFLY_CONFIG.speed}
+        
+        function updateTasks(task){
+            if(task.sinking){ task.scale-=0.01; task.alpha-=0.02; if(task.alpha<=0){tasks.splice(tasks.indexOf(task),1)} return; }
+            task.vx *= 0.98; task.vy *= 0.98;
+            koi_school.forEach(k=>{ const dx=k.x-task.x,dy=k.y-task.y,dist=Math.sqrt(dx*dx+dy*dy),minDist=TASK_CONFIG.collisionRadius; if(dist<minDist){ task.vx-=(dx/dist)*2; task.vy-=(dy/dist)*2; } });
+            const speed = Math.sqrt(task.vx*task.vx + task.vy*task.vy);
+            if(speed < 0.5){ const centerForce = 0.0005; task.vx += (width/2 - task.x) * centerForce; task.vy += (height/2 - task.y) * centerForce; }
+            task.x += task.vx; task.y += task.vy;
+        }
+
+        // --- Main Loop ---
+        function loop(time) {
+            ctx.fillStyle = '#0f3c3c';
+            ctx.fillRect(0, 0, width, height);
+            
+            koi_school.forEach((k, i) => updateKoi(k, i, koi_school));
+            dragonflies.forEach(updateDragonfly);
+            tasks.forEach(updateTasks);
+
+            drawBottomShapes();
+            drawWaterShine(time);
+            tasks.forEach(drawTask);
+            koi_school.forEach(drawKoi);
+            drawLilies();
+            drawDragonflies();
+            drawAndUpdateRipples();
+            
+            requestAnimationFrame(loop);
+        }
+
+        // --- UI & Task Logic ---
+        addTaskButton.addEventListener('click', () => addTaskModal.style.display = 'flex');
+        cancelTaskButton.addEventListener('click', () => addTaskModal.style.display = 'none');
+        closeViewButton.addEventListener('click', () => viewTaskModal.style.display = 'none');
+
+        submitTaskButton.addEventListener('click', () => {
+            const title = taskTitleInput.value.trim();
+            const text = taskTextInput.value.trim();
+            const flagColor = flagColorInput.value;
+            if (title) {
+                tasks.push({ title, text, flagColor, x: Math.random() * width, y: Math.random() * height, vx: 0, vy: 0, angle: Math.random() * Math.PI - Math.PI/2, sinking: false, alpha: 1, scale: 1 });
+                taskTitleInput.value = ''; taskTextInput.value = '';
+                addTaskModal.style.display = 'none';
+            }
+        });
+
+        destroyTaskButton.addEventListener('click', () => { if (activeTask) { activeTask.sinking = true; viewTaskModal.style.display = 'none'; activeTask = null; } });
+        saveTasksButton.addEventListener('click', () => { const dataStr = JSON.stringify(tasks.filter(t => !t.sinking), null, 2); const dataBlob = new Blob([dataStr], {type: 'application/json'}); const url = URL.createObjectURL(dataBlob); const a = document.createElement('a'); a.href = url; a.download = 'tasks.json'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); });
+
+        function handleCanvasClick(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            let taskClicked = false;
+            
+            for(let i = tasks.length - 1; i >= 0; i--) {
+                const task = tasks[i];
+                if (task.sinking) continue;
+                const matrix = new DOMMatrix().translate(task.x, task.y).rotate(task.angle * 180 / Math.PI);
+                const invMatrix = matrix.inverse();
+                const localClick = new DOMPoint(clickX, clickY).matrixTransform(invMatrix);
+                if (localClick.x > -TASK_CONFIG.width / 2 && localClick.x < TASK_CONFIG.width / 2 && localClick.y > -TASK_CONFIG.height / 2 && localClick.y < TASK_CONFIG.height / 2) {
+                    activeTask = task;
+                    viewTaskTitle.textContent = task.title;
+                    viewTaskText.textContent = task.text || "No description.";
+                    viewTaskModal.style.display = 'flex';
+                    taskClicked = true;
+                    break;
+                }
+            }
+            if (!taskClicked) {
+                lastUserInteractionTime=performance.now();
+                masterTarget={x:clickX,y:clickY};
+                koi_school.forEach(k=>k.target=masterTarget);
+                createTouchRipple(clickX,clickY)
+            }
+        }
+
+        // --- Initialization ---
+        function init() {
+            for(let i=0; i<30; i++) { bottomShapes.push({ x: Math.random() * width, y: Math.random() * height, radius: Math.random() * 80 + 20, color: `rgba(10, 80, 60, ${Math.random() * 0.2 + 0.05})` }); }
+            if (koi_school.length === 0) { for (let i = 0; i < POND_CONFIG.NUM_KOI; i++) { koi_school.push({ x: Math.random() * width, y: Math.random() * height, vx: 0, vy: 0, angle: Math.random() * Math.PI * 2, target: { x: Math.random() * width, y: Math.random() * height }, animOffset: Math.random() * 1000, color: `hsl(${15 + Math.random() * 30}, 80%, 70%)` }); } }
+            for (let i = 0; i < POND_CONFIG.NUM_LILIES; i++) { waterLilies.push({ x: Math.random() * width, y: Math.random() * height, width: 60 + Math.random() * 40, type: Math.floor(Math.random() * lilyFrameSources.length) }); }
+            for (let i = 0; i < POND_CONFIG.NUM_DRAGONFLIES; i++) { dragonflies.push({ x: Math.random() * width, y: Math.random() * height, angle: Math.random() * Math.PI * 2, target: { x: Math.random() * width, y: Math.random() * height }, animOffset: Math.random() * 1000 }); }
+
+            canvas.addEventListener('pointerdown', handleCanvasClick);
+            window.addEventListener('resize', () => { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; });
+            
+            loop(0);
+        }
+        
+        loadData();
+    </script>
+</body>
+</html>
