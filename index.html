@@ -58,7 +58,12 @@
         // --- Configuration ---
         const POND_CONFIG = { NUM_KOI: 11, NUM_LILIES: 32, NUM_DRAGONFLIES: 5 };
         const KOI_CONFIG = { spriteWidth: 45, spriteHeight: 0, turnSpeed: 0.05, speed: 2.5, targetReachedThreshold: 30, animationSpeed: 100, collisionRadius: 40 };
-        const DRAGONFLY_CONFIG = { spriteWidth: 50, spriteHeight: 0, speed: 4, turnSpeed: 0.1 };
+        const DRAGONFLY_CONFIG = {
+            spriteWidth: 35, // Smaller
+            spriteHeight: 0,
+            speed: 8, // Quicker
+            turnSpeed: 0.1
+        };
         const TASK_CONFIG = { width: 60, height: 60, collisionRadius: 40 };
         const RIPPLE_CONFIG = { maxCount: 100, lineWidth: 1.5 };
         const WANDER_CONFIG = { idleTime: 500 };
@@ -122,7 +127,7 @@
         function drawSimpleLily(lily){ctx.fillStyle='#2e6b2e';ctx.beginPath();ctx.arc(lily.x,lily.y,lily.width/2,0,Math.PI*2);ctx.fill()}
         function drawLilies(){waterLilies.forEach(lily=>{if(useLilySprites&&lilyFrames.length>0){const frame=lilyFrames[lily.type];if(frame&&frame.complete&&frame.naturalWidth>0){const aspectRatio=frame.naturalHeight/frame.naturalWidth;const drawHeight=lily.width*aspectRatio;ctx.drawImage(frame,lily.x-lily.width/2,lily.y-drawHeight/2,lily.width,drawHeight)}else{drawSimpleLily(lily)}}else{drawSimpleLily(lily)}})}
         function drawSimpleDragonfly(d){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle);const wingFlap=Math.sin(performance.now()/50+d.animOffset)*5;ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(-15,-1,30,2);ctx.fillStyle='rgba(200,200,255,0.6)';ctx.fillRect(-10,-3-wingFlap,20,3);ctx.fillRect(-10,1+wingFlap,20,3);ctx.restore()}
-        function drawDragonflies(){dragonflies.forEach(d=>{if(useDragonflySprites&&dragonflyFrames.length>0&&DRAGONFLY_CONFIG.spriteHeight>0){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle+Math.PI/2);const frameIndex=Math.floor((performance.now()+d.animOffset*500)/100)%dragonflyFrames.length;const frame=dragonflyFrames[frameIndex];ctx.drawImage(frame,-DRAGONFLY_CONFIG.spriteWidth/2,-DRAGONFLY_CONFIG.spriteHeight/2,DRAGONFLY_CONFIG.spriteWidth,DRAGONFLY_CONFIG.spriteHeight);ctx.restore()}else{drawSimpleDragonfly(d)}})}
+        function drawDragonflies(){dragonflies.forEach(d=>{if(useDragonflySprites&&dragonflyFrames.length>0&&DRAGONFLY_CONFIG.spriteHeight>0){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle+Math.PI/2);const frameIndex=Math.floor((performance.now()+d.animOffset*500)/60)%dragonflyFrames.length;const frame=dragonflyFrames[frameIndex];ctx.drawImage(frame,-DRAGONFLY_CONFIG.spriteWidth/2,-DRAGONFLY_CONFIG.spriteHeight/2,DRAGONFLY_CONFIG.spriteWidth,DRAGONFLY_CONFIG.spriteHeight);ctx.restore()}else{drawSimpleDragonfly(d)}})}
         
         function drawTask(task) {
             ctx.save();
