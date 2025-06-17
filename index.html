@@ -12,10 +12,12 @@
         .ui-button { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
         .ui-button:hover { background: rgba(0,0,0,0.6); }
         #taskListContainer { display: none; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; max-height: 40vh; overflow-y: auto; max-width: 300px; }
-        .task-list-item { background: rgba(255,255,255,0.05); border-radius: 5px; padding: 5px 10px; margin-bottom: 5px; text-align: left; }
+        .task-list-item { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); border-radius: 5px; padding: 5px 10px; margin-bottom: 5px; text-align: left; }
+        .task-list-item-content { flex-grow: 1; }
         .task-list-item h4 { margin: 0 0 3px 0; color: white; }
         .task-list-item p { margin: 0; color: #a0aec0; font-size: 12px; }
         .task-list-item .deadline { font-size: 11px; color: #f6ad55; font-style: italic; }
+        .remove-task-btn { background: #f56565; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; margin-left: 10px; font-weight: bold; line-height: 20px; text-align: center; }
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; justify-content: center; align-items: center; z-index: 20; }
         .modal-content { background: #1a202c; color: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); }
         .modal-content h2 { margin-top: 0; font-weight: 500; }
@@ -54,22 +56,24 @@
         let width = canvas.width = window.innerWidth;
         let height = canvas.height = window.innerHeight;
         
-        const worldWidth = width * 3;
-        const worldHeight = height * 3;
+        const worldWidth = width * 6;
+        const worldHeight = height * 6;
         const worldOffsetX = (worldWidth - width) / 2;
         const worldOffsetY = (worldHeight - height) / 2;
 
         // --- Configuration ---
-        const POND_CONFIG = { NUM_KOI: 11, NUM_LILIES: 96, NUM_DRAGONFLIES: 5, FEED_COOLDOWN: 30000 };
+        const POND_CONFIG = { NUM_KOI: 11, NUM_LILIES: Math.floor(Math.random() * 11) + 10, NUM_DRAGONFLIES: 5, FEED_COOLDOWN: 30000 };
         const KOI_CONFIG = { spriteWidth: 45, spriteHeight: 0, turnSpeed: 0.05, speed: 2.5, targetReachedThreshold: 30, animationSpeed: 100, collisionRadius: 25 };
         const DRAGONFLY_CONFIG = { spriteWidth: 35, spriteHeight: 0, speed: 8, turnSpeed: 0.1 };
         const TASK_CONFIG = { width: 60, height: 60, collisionRadius: 40 };
         const RIPPLE_CONFIG = { maxCount: 200, lineWidth: 1.5 };
         const WANDER_CONFIG = { idleTime: 3000 };
+        const TIME_CONFIG = { NIGHT_CYCLE_TOTAL: 240000, NIGHT_DURATION: 60000, RAIN_CHANCE_INTERVAL: 45000, RAIN_DURATION_MIN: 30000, RAIN_DURATION_MAX: 90000 };
 
         // --- State ---
-        let koi_school = [], waterLilies = [], dragonflies = [], bottomShapes = [], tasks = [], foodFlakes = [];
-        let ripples = [], isRaining = false, foodTarget = null, lastFeedTime = -POND_CONFIG.FEED_COOLDOWN; // Start ready to feed
+        let koi_school = [], waterLilies = [], dragonflies = [], bottomShapes = [], tasks = [], foodFlakes = [], stars = [];
+        let ripples = [], foodTarget = null, lastFeedTime = -POND_CONFIG.FEED_COOLDOWN;
+        let isNight = false, isRaining = false, lastRainCheck = 0, rainTimer = null;
 
         // --- Asset Management ---
         const koiFrames = [], lilyFrames = [], dragonflyFrames = [];
@@ -100,48 +104,62 @@
         const destroyTaskButton = document.getElementById('destroyTaskButton');
         let activeTask = null;
         
-        // --- Rendering & Update Functions (abbreviated) ---
-        const causticCanvas = document.createElement('canvas'); const causticCtx = causticCanvas.getContext('2d'); const causticSize = 256; causticCanvas.width = causticSize; causticCanvas.height = causticSize;
-        function createCausticPattern(){for(let i=0;i<50;i++){causticCtx.fillStyle=`rgba(255,255,255,${Math.random()*0.05})`;causticCtx.beginPath();causticCtx.arc(Math.random()*causticSize,Math.random()*causticSize,Math.random()*30+10,0,Math.PI*2);causticCtx.fill()}}createCausticPattern();
+        // --- Rendering & Update Functions ---
+        const causticCanvas=document.createElement('canvas');const causticCtx=causticCanvas.getContext('2d');const causticSize=256;causticCanvas.width=causticSize;causticCanvas.height=causticSize;function createCausticPattern(){for(let i=0;i<50;i++){causticCtx.fillStyle=`rgba(255,255,255,${Math.random()*0.05})`;causticCtx.beginPath();causticCtx.arc(Math.random()*causticSize,Math.random()*causticSize,Math.random()*30+10,0,Math.PI*2);causticCtx.fill()}}createCausticPattern();
         function drawWaterShine(time){ctx.save();ctx.globalCompositeOperation='soft-light';ctx.globalAlpha=0.4+Math.sin(time/2000)*0.2;const scale=1.5+Math.sin(time/1500)*0.2;const offsetX=Math.sin(time/2500)*width*0.2;const offsetY=Math.cos(time/2200)*height*0.2;ctx.translate(offsetX,offsetY);ctx.drawImage(causticCanvas,-width/2*scale,-height/2*scale,width*scale,height*scale);ctx.restore()}
         function drawBottomShapes(){bottomShapes.forEach(shape=>{ctx.fillStyle=shape.color;ctx.beginPath();ctx.arc(shape.x,shape.y,shape.radius,0,2*Math.PI);ctx.fill()})}
+        function drawStars(time) { stars.forEach(star => { ctx.fillStyle = `rgba(255, 255, 255, ${star.alpha * (0.6 + Math.sin(time * star.speed) * 0.4)})`; ctx.beginPath(); ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2); ctx.fill(); }); }
         
-        async function loadData() {
-            const fetchTasks = fetch('tasks.json').then(response => { if (!response.ok) throw new Error('Tasks file not found'); return response.json(); }).then(loadedTasks => { loadedTasks.forEach(t => { t.vx = t.vx || 0; t.vy = t.vy || 0; t.sinking = t.sinking || false; t.isBeingDestroyed = false; t.alpha = t.alpha || 1; t.scale = t.scale || 1; }); tasks.push(...loadedTasks); updateTaskListUI(); }).catch(error => { console.log("No tasks.json found, starting fresh."); });
-            const loadImage = src => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = src; });
-            const assetPromises = [fetchTasks];
-            koiFrameSources.forEach(src => assetPromises.push(loadImage(src).then(img => koiFrames.push(img)).catch(() => useKoiSprites = false)));
-            lilyFrameSources.forEach(src => assetPromises.push(loadImage(src).then(img => lilyFrames.push(img)).catch(() => useLilySprites = false)));
-            dragonflyFrameSources.forEach(src => assetPromises.push(loadImage(src).then(img => dragonflyFrames.push(img)).catch(() => useDragonflySprites = false)));
-            assetPromises.push(loadImage('square.png').then(img => taskImage = img).catch(() => useTaskSprite = false));
-            assetPromises.push(loadImage('flake.png').then(img => flakeImage = img).catch(() => useFlakeSprite = false));
-            await Promise.allSettled(assetPromises);
-            if (useKoiSprites && koiFrames.length > 0) { KOI_CONFIG.spriteHeight = KOI_CONFIG.spriteWidth * (koiFrames[0].naturalHeight / koiFrames[0].naturalWidth); }
-            if (useDragonflySprites && dragonflyFrames.length > 0) { DRAGONFLY_CONFIG.spriteHeight = DRAGONFLY_CONFIG.spriteWidth * (dragonflyFrames[0].naturalHeight / dragonflyFrames[0].naturalWidth); }
-            loader.style.display = 'none';
-            init();
-        }
+        async function loadData(){const fetchTasks=fetch('tasks.json').then(response=>{if(!response.ok)throw new Error('Tasks file not found');return response.json()}).then(loadedTasks=>{loadedTasks.forEach(t=>{t.vx=t.vx||0;t.vy=t.vy||0;t.angleVelocity=0;t.sinking=t.sinking||false;t.isBeingDestroyed=false;t.alpha=t.alpha||1;t.scale=t.scale||1});tasks.push(...loadedTasks);updateTaskListUI()}).catch(error=>{console.log("No tasks.json found, starting fresh.")});const loadImage=src=>new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=reject;img.src=src});const assetPromises=[fetchTasks];koiFrameSources.forEach(src=>assetPromises.push(loadImage(src).then(img=>koiFrames.push(img)).catch(()=>useKoiSprites=false)));lilyFrameSources.forEach(src=>assetPromises.push(loadImage(src).then(img=>lilyFrames.push(img)).catch(()=>useLilySprites=false)));dragonflyFrameSources.forEach(src=>assetPromises.push(loadImage(src).then(img=>dragonflyFrames.push(img)).catch(()=>useDragonflySprites=false)));assetPromises.push(loadImage('square.png').then(img=>taskImage=img).catch(()=>useTaskSprite=false));assetPromises.push(loadImage('flake.png').then(img=>flakeImage=img).catch(()=>useFlakeSprite=false));await Promise.allSettled(assetPromises);if(useKoiSprites&&koiFrames.length>0){KOI_CONFIG.spriteHeight=KOI_CONFIG.spriteWidth*(koiFrames[0].naturalHeight/koiFrames[0].naturalWidth)}if(useDragonflySprites&&dragonflyFrames.length>0){DRAGONFLY_CONFIG.spriteHeight=DRAGONFLY_CONFIG.spriteWidth*(dragonflyFrames[0].naturalHeight/dragonflyFrames[0].naturalWidth)}loader.style.display='none';init()}
 
         // --- Drawing ---
         function drawSimpleKoi(k){ctx.save();ctx.translate(k.x,k.y);ctx.rotate(k.angle);const time=performance.now()/150;const tailFlap=Math.sin(time+k.animOffset)*0.6;const bodyLength=KOI_CONFIG.spriteWidth*0.8;const bodyWidth=bodyLength*0.5;ctx.fillStyle=k.color;ctx.save();ctx.translate(-bodyLength/2,0);ctx.rotate(tailFlap);ctx.beginPath();ctx.moveTo(0,-4);ctx.lineTo(-20,-12);ctx.lineTo(-20,12);ctx.lineTo(0,4);ctx.closePath();ctx.fill();ctx.restore();ctx.beginPath();ctx.ellipse(0,0,bodyLength/2,bodyWidth/2,0,0,2*Math.PI);ctx.fill();ctx.restore()}
         function drawKoi(k){if(useKoiSprites&&koiFrames.length>0&&KOI_CONFIG.spriteHeight>0){ctx.save();ctx.translate(k.x,k.y);ctx.rotate(k.angle+Math.PI/2);const frameIndex=Math.floor((performance.now()+k.animOffset*500)/KOI_CONFIG.animationSpeed)%koiFrames.length;const frame=koiFrames[frameIndex];ctx.drawImage(frame,-KOI_CONFIG.spriteWidth/2,-KOI_CONFIG.spriteHeight/2,KOI_CONFIG.spriteWidth,KOI_CONFIG.spriteHeight);ctx.restore()}else{drawSimpleKoi(k)}}
         function drawSimpleLily(lily){ctx.fillStyle='#2e6b2e';ctx.beginPath();ctx.arc(lily.x,lily.y,lily.width/2,0,Math.PI*2);ctx.fill()}
         function drawLilies(){waterLilies.forEach(lily=>{if(useLilySprites&&lilyFrames.length>0){const frame=lilyFrames[lily.type];if(frame&&frame.complete&&frame.naturalWidth>0){const aspectRatio=frame.naturalHeight/frame.naturalWidth;const drawHeight=lily.width*aspectRatio;ctx.drawImage(frame,lily.x-lily.width/2,lily.y-drawHeight/2,lily.width,drawHeight)}else{drawSimpleLily(lily)}}else{drawSimpleLily(lily)}})}
-        function drawSimpleDragonfly(d){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle);const wingFlap=Math.sin(performance.now()/50+d.animOffset)*5;ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(-15,-1,30,2);ctx.fillStyle='rgba(200,200,255,0.6)';ctx.fillRect(-10,-3-wingFlap,20,3);ctx.fillRect(-10,1+wingFlap,20,3);ctx.restore()}
-        function drawDragonflies(){dragonflies.forEach(d=>{if(useDragonflySprites&&dragonflyFrames.length>0&&DRAGONFLY_CONFIG.spriteHeight>0){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle+Math.PI/2);const frameIndex=Math.floor((performance.now()+d.animOffset*500)/60)%dragonflyFrames.length;const frame=dragonflyFrames[frameIndex];ctx.drawImage(frame,-DRAGONFLY_CONFIG.spriteWidth/2,-DRAGONFLY_CONFIG.spriteHeight/2,DRAGONFLY_CONFIG.spriteWidth,DRAGONFLY_CONFIG.spriteHeight);ctx.restore()}else{drawSimpleDragonfly(d)}})}
+        function drawSimpleDragonfly(d){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle);const wingFlap=d.isResting?0:Math.sin(performance.now()/50+d.animOffset)*5;ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(-15,-1,30,2);ctx.fillStyle='rgba(200,200,255,0.6)';ctx.fillRect(-10,-3-wingFlap,20,3);ctx.fillRect(-10,1+wingFlap,20,3);ctx.restore()}
+        function drawDragonflies(){dragonflies.forEach(d=>{if(useDragonflySprites&&dragonflyFrames.length>0&&DRAGONFLY_CONFIG.spriteHeight>0){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle+Math.PI/2);const frameIndex=d.isResting?0:Math.floor((performance.now()+d.animOffset*500)/60)%dragonflyFrames.length;const frame=dragonflyFrames[frameIndex];ctx.drawImage(frame,-DRAGONFLY_CONFIG.spriteWidth/2,-DRAGONFLY_CONFIG.spriteHeight/2,DRAGONFLY_CONFIG.spriteWidth,DRAGONFLY_CONFIG.spriteHeight);ctx.restore()}else{drawSimpleDragonfly(d)}})}
         function drawTask(task){ctx.save();ctx.globalAlpha=task.alpha;ctx.translate(task.x,task.y);ctx.rotate(task.angle);const w=TASK_CONFIG.width*task.scale,h=TASK_CONFIG.height*task.scale;if(useTaskSprite&&taskImage.complete&&taskImage.naturalWidth>0){ctx.drawImage(taskImage,-w/2,-h/2,w,h)}else{ctx.fillStyle='rgba(139,69,19,0.8)';ctx.strokeStyle='rgba(101,53,15,0.9)';ctx.lineWidth=3;ctx.strokeRect(-w/2,-h/2,w,h);ctx.fillRect(-w/2,-h/2,w,h)}const flagPoleHeight=h*0.8,flagWidth=w*1.2,flagHeight=h*0.5;ctx.fillStyle='#666';ctx.fillRect(w/2-2,-h/2-flagPoleHeight,4,flagPoleHeight);ctx.fillStyle=task.flagColor;ctx.beginPath();ctx.moveTo(w/2,-h/2-flagPoleHeight);ctx.lineTo(w/2+flagWidth,-h/2-flagPoleHeight);ctx.lineTo(w/2+flagWidth,-h/2-flagPoleHeight+flagHeight);ctx.lineTo(w/2,-h/2-flagPoleHeight+flagHeight);ctx.closePath();ctx.fill();ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font=`bold ${flagHeight*0.5}px sans-serif`;ctx.fillText(task.title,w/2+flagWidth/2,-h/2-flagPoleHeight+flagHeight/2);ctx.restore()}
         function drawFood() { foodFlakes.forEach(f => { ctx.save(); ctx.globalAlpha = f.alpha; ctx.translate(f.x, f.y); if (useFlakeSprite && flakeImage.complete && flakeImage.naturalWidth > 0) { const size = f.size * 2; ctx.drawImage(flakeImage, -size, -size, size * 2, size * 2); } else { ctx.fillStyle = `rgba(255, 220, 100, ${f.alpha})`; ctx.beginPath(); ctx.arc(0, 0, f.size, 0, 2 * Math.PI); ctx.fill(); } ctx.restore(); }); }
 
         // --- Ripples ---
-        function createRainRipple(){if(ripples.length<RIPPLE_CONFIG.maxCount){ripples.push({x:Math.random()*width,y:Math.random()*height,radius:0,alpha:Math.random()*0.3+0.2,speed:Math.random()*0.5+0.3,maxRadius:20+Math.random()*20})}}
+        function createRainRipple(){if(ripples.length<RIPPLE_CONFIG.maxCount){ripples.push({x:Math.random()*width,y:Math.random()*height,radius:0,alpha:Math.random()*0.3+0.2,speed:Math.random()*0.5+0.3,maxRadius:15+Math.random()*15})}}
         function createTouchRipple(x,y){if(ripples.length<RIPPLE_CONFIG.maxCount){ripples.push({x,y,radius:0,alpha:1,speed:Math.random()*0.5+0.5,maxRadius:60+Math.random()*20})}}
         function drawAndUpdateRipples(){ctx.lineWidth=RIPPLE_CONFIG.lineWidth;ripples.forEach((r,i)=>{r.radius+=r.speed;const fadePoint=r.maxRadius*0.7;if(r.radius>fadePoint){r.alpha=Math.max(0,r.alpha-0.02)}if(r.alpha<=0||r.radius>r.maxRadius){ripples.splice(i,1);return}ctx.beginPath();ctx.arc(r.x,r.y,r.radius,0,Math.PI*2);ctx.strokeStyle=`rgba(220,230,255,${r.alpha*0.7})`;ctx.stroke()})}
         
         // --- Update Logic ---
-        function updateKoi(k){k.vx*=0.96;k.vy*=0.96;koi_school.forEach(other=>{if(k===other)return;const dx=other.x-k.x,dy=other.y-k.y,dist=Math.hypot(dx,dy);if(dist<KOI_CONFIG.collisionRadius){const angle=Math.atan2(dy,dx),overlap=(KOI_CONFIG.collisionRadius-dist)*0.5;k.vx-=Math.cos(angle)*overlap*0.1;k.vy-=Math.sin(angle)*overlap*0.1}});if(foodTarget){k.target=foodTarget}else if(k.targetOverride){const distToOverride=Math.hypot(k.target.x-k.x,k.target.y-k.y);if(distToOverride<KOI_CONFIG.targetReachedThreshold){k.targetOverride=null;k.lastActionTime=performance.now()}}else if(performance.now()-k.lastActionTime>WANDER_CONFIG.idleTime){if(k.personality==='cheeky'&&tasks.length>0&&Math.random()<0.005){k.target=tasks[Math.floor(Math.random()*tasks.length)]}else if(k.personality==='helpful'&&tasks.length>0&&Math.random()<0.005){const strayTask=tasks.find(t=>t.x<worldOffsetX||t.x>worldWidth-worldOffsetX||t.y<worldOffsetY||t.y>worldHeight-worldOffsetY);if(strayTask){k.target={x:(strayTask.x+worldWidth/2)/2,y:(strayTask.y+worldHeight/2)/2}}}else{k.target={x:Math.random()*worldWidth,y:Math.random()*worldHeight}}k.lastActionTime=performance.now()}const dx_t=k.target.x-k.x,dy_t=k.target.y-k.y,dist_t=Math.hypot(dx_t,dy_t);if(dist_t>1){let tA=Math.atan2(dy_t,dx_t),aD=tA-k.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;k.angle+=aD*KOI_CONFIG.turnSpeed;k.vx+=Math.cos(k.angle)*KOI_CONFIG.speed*0.05;k.vy+=Math.sin(k.angle)*KOI_CONFIG.speed*0.05}let s=Math.sqrt(k.vx*k.vx+k.vy*k.vy);if(s>KOI_CONFIG.speed){k.vx=(k.vx/s)*KOI_CONFIG.speed;k.vy=(k.vy/s)*KOI_CONFIG.speed}k.x=Math.max(0,Math.min(worldWidth,k.x+k.vx));k.y=Math.max(0,Math.min(worldHeight,k.y+k.vy))}
-        function updateDragonfly(d){let dx=d.target.x-d.x,dy=d.target.y-d.y;if(Math.sqrt(dx*dx+dy*dy)<50){d.target={x:Math.random()*width,y:Math.random()*height}}let tA=Math.atan2(dy,dx),aD=tA-d.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;d.angle+=aD*DRAGONFLY_CONFIG.turnSpeed;d.x+=Math.cos(d.angle)*DRAGONFLY_CONFIG.speed;d.y+=Math.sin(d.angle)*DRAGONFLY_CONFIG.speed}
-        function updateTasks(task,index,allTasks){if(task.isBeingDestroyed&&!task.sinking){task.vx+=(task.destroyTarget.x-task.x)*0.001;task.vy+=(task.destroyTarget.y-task.y)*0.001;const isOffScreen=task.x<-TASK_CONFIG.width||task.x>worldWidth+TASK_CONFIG.width||task.y<-TASK_CONFIG.height||task.y>worldHeight+TASK_CONFIG.height;if(isOffScreen)task.sinking=true}if(task.sinking){task.scale-=0.01;task.alpha-=0.02;if(task.alpha<=0){tasks.splice(index,1);updateTaskListUI()}return}for(let i=index+1;i<allTasks.length;i++){const other=allTasks[i];if(other.sinking)continue;const dx=other.x-task.x,dy=other.y-task.y,dist=Math.sqrt(dx*dx+dy*dy);const minDist=TASK_CONFIG.width;if(dist<minDist){const angle=Math.atan2(dy,dx),overlap=(minDist-dist)*0.5;task.x-=Math.cos(angle)*overlap;task.y-=Math.sin(angle)*overlap;other.x+=Math.cos(angle)*overlap;other.y+=Math.sin(angle)*overlap;const tempVx=task.vx,tempVy=task.vy;task.vx=other.vx;task.vy=other.vy;other.vx=tempVx;other.vy=tempVy}}task.vx*=0.98;task.vy*=0.98;koi_school.forEach(k=>{const dx=k.x-task.x,dy=k.y-task.y,dist=Math.sqrt(dx*dx+dy*dy),minDist=TASK_CONFIG.collisionRadius;if(dist<minDist){task.vx-=(dx/dist)*2;task.vy-=(dy/dist)*2}});const speed=Math.sqrt(task.vx*task.vx+task.vy*task.vy);if(speed<0.5&&!task.isBeingDestroyed){const centerForce=0.0001;task.vx+=(worldWidth/2-task.x)*centerForce;task.vy+=(worldHeight/2-task.y)*centerForce}task.x+=task.vx;task.y+=task.vy}
-        function updateFood(){if(foodFlakes.length>0&&foodTarget){const anyKoiNear=koi_school.some(k=>Math.hypot(k.x-foodTarget.x,k.y-foodTarget.y)<50);if(anyKoiNear&&!foodFlakes[0].sinking){foodFlakes.forEach((f,i)=>setTimeout(()=>f.sinking=true,i*100))}let allSunk=true;foodFlakes.forEach((f,i)=>{if(f.sinking){f.vy+=0.05;f.alpha-=0.01}f.x+=f.vx;f.y+=f.vy;f.vx*=0.95;if(f.alpha>0)allSunk=false;else foodFlakes.splice(i,1)});if(foodFlakes.length === 0){foodTarget=null;koi_school.forEach(k=>k.targetOverride=null)}}}
+        function updateKoi(k){k.vx*=0.96;k.vy*=0.96;koi_school.forEach(other=>{if(k===other)return;const dx=other.x-k.x,dy=other.y-k.y,dist=Math.hypot(dx,dy);if(dist<KOI_CONFIG.collisionRadius){const angle=Math.atan2(dy,dx),overlap=(KOI_CONFIG.collisionRadius-dist)*0.5;k.vx-=Math.cos(angle)*overlap*0.1;k.vy-=Math.sin(angle)*overlap*0.1}});if(isNight){k.target={x:worldWidth/2+(Math.random()-0.5)*200,y:worldHeight/2+(Math.random()-0.5)*200}}else if(foodTarget){k.target=foodTarget}else if(k.targetOverride){const distToOverride=Math.hypot(k.target.x-k.x,k.target.y-k.y);if(distToOverride<KOI_CONFIG.targetReachedThreshold){k.targetOverride=null;k.lastActionTime=performance.now()}}else if(performance.now()-k.lastActionTime>WANDER_CONFIG.idleTime){if(k.personality==='cheeky'&&tasks.length>0&&Math.random()<0.005){k.target=tasks[Math.floor(Math.random()*tasks.length)]}else if(k.personality==='helpful'&&tasks.length>0&&Math.random()<0.005){const strayTask=tasks.find(t=>t.x<worldOffsetX||t.x>worldWidth-worldOffsetX||t.y<worldOffsetY||t.y>worldHeight-worldOffsetY);if(strayTask){k.target={x:(strayTask.x+worldWidth/2)/2,y:(strayTask.y+worldHeight/2)/2}}}else{k.target={x:Math.random()*worldWidth,y:Math.random()*worldHeight}}k.lastActionTime=performance.now()}const dx_t=k.target.x-k.x,dy_t=k.target.y-k.y,dist_t=Math.hypot(dx_t,dy_t);if(dist_t>1){let tA=Math.atan2(dy_t,dx_t),aD=tA-k.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;k.angle+=aD*KOI_CONFIG.turnSpeed;let speedModifier=isNight?0.3:1;k.vx+=Math.cos(k.angle)*KOI_CONFIG.speed*0.05*speedModifier;k.vy+=Math.sin(k.angle)*KOI_CONFIG.speed*0.05*speedModifier}let s=Math.sqrt(k.vx*k.vx+k.vy*k.vy);if(s>KOI_CONFIG.speed){k.vx=(k.vx/s)*KOI_CONFIG.speed;k.vy=(k.vy/s)*KOI_CONFIG.speed}k.x=Math.max(0,Math.min(worldWidth,k.x+k.vx));k.y=Math.max(0,Math.min(worldHeight,k.y+k.vy))}
+        function updateDragonfly(d){
+            if (isNight) {
+                if (!d.restingSpot) {
+                    let closestLily = null;
+                    let minDist = Infinity;
+                    waterLilies.forEach(lily => {
+                        const dist = Math.hypot(d.x - (lily.x - worldOffsetX), d.y - (lily.y - worldOffsetY));
+                        if (dist < minDist) {
+                            minDist = dist;
+                            closestLily = lily;
+                        }
+                    });
+                    d.restingSpot = closestLily;
+                    if(d.restingSpot) d.target = { x: d.restingSpot.x - worldOffsetX, y: d.restingSpot.y - worldOffsetY };
+                }
+                const distToTarget = Math.hypot(d.target.x - d.x, d.target.y - d.y);
+                if (distToTarget < 10) {
+                    d.isResting = true;
+                    return; // Stop moving
+                }
+            } else {
+                if (d.isResting) {
+                    d.isResting = false;
+                    d.restingSpot = null;
+                    d.target = {x: Math.random() * width, y: Math.random() * height};
+                }
+            }
+            let dx=d.target.x-d.x,dy=d.target.y-d.y;if(Math.sqrt(dx*dx+dy*dy)<50){d.target={x:Math.random()*width,y:Math.random()*height}}let tA=Math.atan2(dy,dx),aD=tA-d.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;d.angle+=aD*DRAGONFLY_CONFIG.turnSpeed;d.x+=Math.cos(d.angle)*DRAGONFLY_CONFIG.speed;d.y+=Math.sin(d.angle)*DRAGONFLY_CONFIG.speed;
+        }
+        function updateTasks(task,index,allTasks){if(task.sinking){task.scale-=0.01;task.alpha-=0.02;if(task.alpha<=0){tasks.splice(index,1);updateTaskListUI()}return}for(let i=index+1;i<allTasks.length;i++){const other=allTasks[i];if(other.sinking)continue;const dx=other.x-task.x,dy=other.y-task.y,dist=Math.sqrt(dx*dx+dy*dy);const minDist=TASK_CONFIG.width;if(dist<minDist){const angle=Math.atan2(dy,dx),overlap=(minDist-dist)*0.5;task.x-=Math.cos(angle)*overlap;task.y-=Math.sin(angle)*overlap;other.x+=Math.cos(angle)*overlap;other.y+=Math.sin(angle)*overlap;const tempVx=task.vx,tempVy=task.vy;task.vx=other.vx;task.vy=other.vy;other.vx=tempVx;other.vy=tempVy;task.angleVelocity+=Math.random()*0.001-0.0005;other.angleVelocity+=Math.random()*0.001-0.0005}}task.vx*=0.98;task.vy*=0.98;task.angleVelocity*=0.95;task.angle+=task.angleVelocity;koi_school.forEach(k=>{const dx=k.x-task.x,dy=k.y-task.y,dist=Math.sqrt(dx*dx+dy*dy),minDist=TASK_CONFIG.collisionRadius;if(dist<minDist){task.vx-=(dx/dist)*2;task.vy-=(dy/dist)*2;task.angleVelocity+=(Math.random()-0.5)*0.01}});waterLilies.forEach(lily=>{const dx=lily.x-task.x,dy=lily.y-task.y,dist=Math.hypot(dx,dy);const minDist=(lily.width/2)+TASK_CONFIG.width/2;if(dist<minDist){task.vx-=(dx/dist)*0.5;task.vy-=(dy/dist)*0.5}});const speed=Math.sqrt(task.vx*task.vx+task.vy*task.vy);if(speed<0.5&&!task.sinking){const centerForce=0.0001;task.vx+=(worldWidth/2-task.x)*centerForce;task.vy+=(worldHeight/2-task.y)*centerForce}task.x+=task.vx;task.y+=task.vy}
+        function updateFood(){if(foodFlakes.length>0&&foodTarget){const anyKoiNear=koi_school.some(k=>Math.hypot(k.x-foodTarget.x,k.y-foodTarget.y)<50);if(anyKoiNear&&!foodFlakes[0].sinking){foodFlakes.forEach((f,i)=>setTimeout(()=>f.sinking=true,i*100))}let allSunk=true;foodFlakes.forEach((f,i)=>{if(f.sinking){f.vy+=0.05;f.alpha-=0.01}f.x+=f.vx;f.y+=f.vy;f.vx*=0.95;if(f.alpha>0)allSunk=false;else foodFlakes.splice(i,1)});if(foodFlakes.length===0){foodTarget=null;koi_school.forEach(k=>k.targetOverride=null)}}}
 
         // --- Main Loop ---
         function loop(time) {
@@ -150,7 +168,18 @@
             dragonflies.forEach(updateDragonfly);
             tasks.forEach((t, i) => updateTasks(t, i, tasks));
             updateFood();
-            if(isRaining) { for(let i=0; i<10; i++) { createRainRipple(); } }
+            
+            const cycleTime = time % TIME_CONFIG.NIGHT_CYCLE_TOTAL;
+            isNight = cycleTime > (TIME_CONFIG.NIGHT_CYCLE_TOTAL - TIME_CONFIG.NIGHT_DURATION);
+            if (time - lastRainCheck > TIME_CONFIG.RAIN_CHANCE_INTERVAL) {
+                lastRainCheck = time;
+                if (!isRaining && Math.random() < 0.5) {
+                    isRaining = true;
+                    if(rainTimer) clearTimeout(rainTimer);
+                    rainTimer = setTimeout(() => { isRaining = false; }, TIME_CONFIG.RAIN_DURATION_MIN + Math.random() * (TIME_CONFIG.RAIN_DURATION_MAX - TIME_CONFIG.RAIN_DURATION_MIN));
+                }
+            }
+            if(isRaining) { for(let i=0; i<20; i++) { createRainRipple(); } }
             
             ctx.save();
             ctx.translate(-worldOffsetX, -worldOffsetY);
@@ -163,67 +192,54 @@
 
             drawDragonflies(); 
             drawAndUpdateRipples();
+            
+            if(isNight) { ctx.fillStyle = 'rgba(0,0,20,0.4)'; ctx.fillRect(0,0,width,height); drawStars(time); }
+            else if(isRaining) { ctx.fillStyle = 'rgba(0,10,20,0.2)'; ctx.fillRect(0,0,width,height); }
+            drawWaterShine(time);
 
             const timeSinceFeed = performance.now() - lastFeedTime;
-            if (timeSinceFeed < POND_CONFIG.FEED_COOLDOWN) {
-                const secondsLeft = Math.ceil((POND_CONFIG.FEED_COOLDOWN - timeSinceFeed) / 1000);
-                feedHint.textContent = `Feed Cooldown: ${secondsLeft}s`;
-                feedHint.style.color = 'rgba(255,100,100,0.7)';
-            } else {
-                feedHint.textContent = "Press 'F' to Feed";
-                feedHint.style.color = 'rgba(255,255,255,0.5)';
-            }
+            if (timeSinceFeed < POND_CONFIG.FEED_COOLDOWN) { const secondsLeft = Math.ceil((POND_CONFIG.FEED_COOLDOWN - timeSinceFeed) / 1000); feedHint.textContent = `Feed Cooldown: ${secondsLeft}s`; feedHint.style.color = 'rgba(255,100,100,0.7)'; } else { feedHint.textContent = "Press 'F' to Feed"; feedHint.style.color = 'rgba(255,255,255,0.5)'; }
             requestAnimationFrame(loop);
         }
 
         // --- UI & Task Logic ---
-        function updateTaskListUI(){taskListContainer.innerHTML='';tasks.filter(t=>!t.sinking&&!t.isBeingDestroyed).forEach(task=>{const item=document.createElement('div');item.className='task-list-item';let deadlineHTML='';if(task.deadline){const d=new Date(task.deadline+'T00:00:00');deadlineHTML=`<p class="deadline">Due: ${d.toLocaleDateString()}</p>`}item.innerHTML=`<h4>${task.title}</h4><p>${task.text}</p>${deadlineHTML}`;item.style.borderLeft=`5px solid ${task.flagColor}`;taskListContainer.appendChild(item)})}
+        function updateTaskListUI(){taskListContainer.innerHTML='';tasks.filter(t=>!t.sinking&&!t.isBeingDestroyed).forEach((task,index)=>{const item=document.createElement('div');item.className='task-list-item';let deadlineHTML='';if(task.deadline){const d=new Date(task.deadline+'T00:00:00');deadlineHTML=`<p class="deadline">Due: ${d.toLocaleDateString()}</p>`}const content=document.createElement('div');content.className='task-list-item-content';content.innerHTML=`<h4>${task.title}</h4><p>${task.text}</p>${deadlineHTML}`;content.style.borderLeft=`5px solid ${task.flagColor}`;const removeBtn=document.createElement('button');removeBtn.className='remove-task-btn';removeBtn.textContent='X';removeBtn.onclick=()=>{task.sinking=true;updateTaskListUI()};item.appendChild(content);item.appendChild(removeBtn);taskListContainer.appendChild(item)})}
         addTaskButton.addEventListener('click',()=>addTaskModal.style.display='flex');
         cancelTaskButton.addEventListener('click',()=>addTaskModal.style.display='none');
         closeViewButton.addEventListener('click',()=>viewTaskModal.style.display='none');
         toggleListButton.addEventListener('click',()=>{const isHidden=taskListContainer.style.display==='none';taskListContainer.style.display=isHidden?'block':'none'});
-        submitTaskButton.addEventListener('click',()=>{const title=taskTitleInput.value.trim();const text=taskTextInput.value.trim();const flagColor=flagColorInput.value;const deadline=taskDeadlineInput.value;if(title){tasks.push({title,text,flagColor,deadline,x:worldOffsetX+Math.random()*width,y:worldOffsetY+Math.random()*height,vx:0,vy:0,angle:Math.random()*Math.PI-Math.PI/2,sinking:false,alpha:1,scale:1});taskTitleInput.value='';taskTextInput.value='';taskDeadlineInput.value='';addTaskModal.style.display='none';updateTaskListUI()}});
-        destroyTaskButton.addEventListener('click',()=>{if(activeTask){activeTask.isBeingDestroyed=true;const angle=Math.atan2(activeTask.y-worldHeight/2,activeTask.x-worldWidth/2)+Math.PI;const dist=Math.max(worldWidth,worldHeight);activeTask.destroyTarget={x:activeTask.x+Math.cos(angle)*dist,y:activeTask.y+Math.sin(angle)*dist};viewTaskModal.style.display='none';activeTask=null;updateTaskListUI()}});
+        submitTaskButton.addEventListener('click',()=>{const title=taskTitleInput.value.trim();const text=taskTextInput.value.trim();const flagColor=flagColorInput.value;const deadline=taskDeadlineInput.value;if(title){tasks.push({title,text,flagColor,deadline,x:worldOffsetX+Math.random()*width,y:worldOffsetY+Math.random()*height,vx:0,vy:0,angle:0,angleVelocity:0,sinking:false,alpha:1,scale:1});taskTitleInput.value='';taskTextInput.value='';taskDeadlineInput.value='';addTaskModal.style.display='none';updateTaskListUI()}});
+        destroyTaskButton.addEventListener('click',()=>{if(activeTask){activeTask.sinking=true;viewTaskModal.style.display='none';activeTask=null;updateTaskListUI()}});
         saveTasksButton.addEventListener('click',()=>{const dataStr=JSON.stringify(tasks.filter(t=>!t.sinking&&!t.isBeingDestroyed),null,2);const dataBlob=new Blob([dataStr],{type:'application/json'});const url=URL.createObjectURL(dataBlob);const a=document.createElement('a');a.href=url;a.download='tasks.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)});
 
         function handleCanvasClick(e){const rect=canvas.getBoundingClientRect();const clickX=e.clientX-rect.left;const clickY=e.clientY-rect.top;const worldClickX=clickX+worldOffsetX;const worldClickY=clickY+worldOffsetY;let somethingClicked=false;for(let i=tasks.length-1;i>=0;i--){const task=tasks[i];if(task.sinking||task.isBeingDestroyed)continue;const matrix=new DOMMatrix().translate(task.x,task.y).rotate(task.angle*180/Math.PI);const invMatrix=matrix.inverse();const localClick=new DOMPoint(worldClickX,worldClickY).matrixTransform(invMatrix);if(localClick.x>-TASK_CONFIG.width/2&&localClick.x<TASK_CONFIG.width/2&&localClick.y>-TASK_CONFIG.height/2&&localClick.y<TASK_CONFIG.height/2){activeTask=task;viewTaskTitle.textContent=task.title;viewTaskText.textContent=task.text||"No description.";viewTaskDeadline.textContent=task.deadline?`Due: ${new Date(task.deadline+'T00:00:00').toLocaleDateString()}`:'';viewTaskModal.style.display='flex';somethingClicked=true;break}}if(somethingClicked)return;for(const k of koi_school){if(Math.hypot(worldClickX-k.x,worldClickY-k.y)<KOI_CONFIG.collisionRadius){const corners=[{x:50,y:50},{x:worldWidth-50,y:50},{x:worldWidth-50,y:worldHeight-50},{x:50,y:worldHeight-50}];k.targetOverride=corners[Math.floor(Math.random()*corners.length)];k.target=k.targetOverride;somethingClicked=true;break}}if(!somethingClicked){createTouchRipple(clickX,clickY)}}
-        document.addEventListener('keydown', e => {
-            if (e.key.toLowerCase() === 'f') {
-                const now = performance.now();
-                if (now - lastFeedTime < POND_CONFIG.FEED_COOLDOWN) return; // Cooldown check
-                lastFeedTime = now;
-
-                foodFlakes=[]; 
-                const foodX = Math.random() * width; 
-                const foodY = Math.random() * height; 
-                foodTarget = {x: foodX + worldOffsetX, y: foodY + worldOffsetY}; 
-                for(let i=0; i<30; i++) { 
-                    foodFlakes.push({x:foodTarget.x+(Math.random()-0.5)*80,y:foodTarget.y+(Math.random()-0.5)*80,vx:(Math.random()-0.5)*0.5,vy:-Math.random()*0.5,alpha:1,size:Math.random()*2+1,sinking:false}); 
-                } 
-                koi_school.forEach(k => k.targetOverride = foodTarget); 
-            }
-        });
+        document.addEventListener('keydown', e => { const key = e.key.toLowerCase(); if (key === 'f') { const now = performance.now(); if (now - lastFeedTime < POND_CONFIG.FEED_COOLDOWN) return; lastFeedTime = now; foodFlakes=[]; const foodX = Math.random() * width; const foodY = Math.random() * height; foodTarget = {x: foodX + worldOffsetX, y: foodY + worldOffsetY}; for(let i=0; i<30; i++) { foodFlakes.push({x:foodTarget.x+(Math.random()-0.5)*80,y:foodTarget.y+(Math.random()-0.5)*80,vx:(Math.random()-0.5)*0.5,vy:-Math.random()*0.5,alpha:1,size:Math.random()*2+1,sinking:false}); } koi_school.forEach(k => k.targetOverride = foodTarget); } else if (key === 't') { tasks.forEach(t => { t.angle = 0; t.angleVelocity = 0; }); }});
 
         // --- Initialization ---
         function init() {
-            for(let i=0; i<90; i++) { bottomShapes.push({ x: Math.random() * worldWidth, y: Math.random() * worldHeight, radius: Math.random() * 80 + 20, color: `rgba(10, 80, 60, ${Math.random() * 0.2 + 0.05})` }); }
+            for(let i=0; i<300; i++) { stars.push({ x: Math.random() * width, y: Math.random() * height, radius: Math.random() * 1.5, alpha: Math.random() * 0.5 + 0.5, speed: Math.random() * 0.0005 }); }
+            for(let i=0; i<180; i++) { bottomShapes.push({ x: Math.random() * worldWidth, y: Math.random() * worldHeight, radius: Math.random() * 80 + 20, color: `rgba(10, 80, 60, ${Math.random() * 0.2 + 0.05})` }); }
             if (koi_school.length === 0) {
-                const personalities = ['neutral', 'cheeky', 'helpful'];
+                const personalities = ['cheeky', 'cheeky', 'cheeky', 'cheeky', 'cheeky', 'helpful', 'helpful', 'neutral', 'neutral', 'neutral', 'neutral'];
                 for (let i = 0; i < POND_CONFIG.NUM_KOI; i++) {
-                    koi_school.push({ x: Math.random() * worldWidth, y: Math.random() * worldHeight, vx: 0, vy: 0, angle: Math.random() * Math.PI * 2, target: { x: Math.random() * worldWidth, y: Math.random() * worldHeight }, animOffset: Math.random() * 1000, color: `hsl(${15 + Math.random() * 30}, 80%, 70%)`, personality: personalities[i % personalities.length], lastActionTime: 0, targetOverride: null });
+                    koi_school.push({ x: Math.random() * worldWidth, y: Math.random() * worldHeight, vx: 0, vy: 0, angle: Math.random() * Math.PI * 2, target: { x: Math.random() * worldWidth, y: Math.random() * worldHeight }, animOffset: Math.random() * 1000, color: `hsl(${15 + Math.random() * 30}, 80%, 70%)`, personality: personalities[i], lastActionTime: 0, targetOverride: null });
                 }
             }
             for (let i = 0; i < POND_CONFIG.NUM_LILIES; i++) {
                 let x, y, size, overlaps; let attempts = 0;
-                do { overlaps = false; x = Math.random() * worldWidth; y = Math.random() * worldHeight; size = 60 + Math.random() * 40; for (const other of waterLilies) { if (Math.hypot(x - other.x, y - other.y) < (size + other.width) / 2) { overlaps = true; break; } } attempts++; } while (overlaps && attempts < 20);
+                do { overlaps = false; x = worldOffsetX + Math.random() * width; y = worldOffsetY + Math.random() * height; size = 60 + Math.random() * 40; for (const other of waterLilies) { if (Math.hypot(x - other.x, y - other.y) < (size + other.width) / 2) { overlaps = true; break; } } attempts++; } while (overlaps && attempts < 20);
                 waterLilies.push({ x, y, width: size, type: Math.floor(Math.random() * lilyFrameSources.length) });
             }
-            for (let i = 0; i < POND_CONFIG.NUM_DRAGONFLIES; i++) { dragonflies.push({ x: Math.random() * width, y: Math.random() * height, angle: Math.random() * Math.PI * 2, target: { x: Math.random() * width, y: Math.random() * height }, animOffset: Math.random() * 1000 }); }
+            for (let i = 0; i < POND_CONFIG.NUM_DRAGONFLIES; i++) { dragonflies.push({ x: Math.random() * width, y: Math.random() * height, angle: Math.random() * Math.PI * 2, target: { x: Math.random() * width, y: Math.random() * height }, animOffset: Math.random() * 1000, restingSpot: null, isResting: false }); }
 
             canvas.addEventListener('pointerdown', handleCanvasClick);
             window.addEventListener('resize', () => { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; });
             
-            setInterval(() => { isRaining = true; setTimeout(() => { isRaining = false; }, 5000 + Math.random() * 5000); }, 10000 + Math.random() * 10000);
+            setInterval(() => {
+                isRaining = true;
+                if(rainTimer) clearTimeout(rainTimer);
+                rainTimer = setTimeout(() => { isRaining = false; }, TIME_CONFIG.RAIN_DURATION_MIN + Math.random() * (TIME_CONFIG.RAIN_DURATION_MAX - TIME_CONFIG.RAIN_DURATION_MIN));
+            }, TIME_CONFIG.RAIN_CHANCE_INTERVAL);
 
             loop(0);
         }
