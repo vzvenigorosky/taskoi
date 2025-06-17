@@ -1,7 +1,46 @@
 [
   {
-    "title": "NJ relev.",
-    "text": "",
+    "title": "Saghil",
+    "text": "Before the end of June",
+    "flagColor": "#ff6b6b",
+    "x": 446.2334368810269,
+    "y": 1338.8176979565974,
+    "vx": -0.04036152191587341,
+    "vy": -0.021990589160996908,
+    "angle": 0.717481625831561,
+    "sinking": false,
+    "alpha": 1,
+    "scale": 1
+  },
+  {
+    "title": "Restos",
+    "text": "Before the 20th",
+    "flagColor": "#ff6b6b",
+    "x": 446.2334368810269,
+    "y": 1338.8176979565974,
+    "vx": -0.04036152191587341,
+    "vy": -0.021990589160996908,
+    "angle": 0.717481625831561,
+    "sinking": false,
+    "alpha": 1,
+    "scale": 1
+  },
+  {
+    "title": "APM Cant.",
+    "text": "ASAP",
+    "flagColor": "#ff6b6b",
+    "x": 446.2334368810269,
+    "y": 1338.8176979565974,
+    "vx": -0.04036152191587341,
+    "vy": -0.021990589160996908,
+    "angle": 0.717481625831561,
+    "sinking": false,
+    "alpha": 1,
+    "scale": 1
+  },
+  {
+    "title": "Reulle",
+    "text": "Wait for reviewers/editor",
     "flagColor": "#ff6b6b",
     "x": 446.2334368810269,
     "y": 1338.8176979565974,
