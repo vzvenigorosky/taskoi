@@ -59,9 +59,9 @@
         const POND_CONFIG = { NUM_KOI: 11, NUM_LILIES: 32, NUM_DRAGONFLIES: 5 };
         const KOI_CONFIG = { spriteWidth: 45, spriteHeight: 0, turnSpeed: 0.05, speed: 2.5, targetReachedThreshold: 30, animationSpeed: 100, collisionRadius: 40 };
         const DRAGONFLY_CONFIG = {
-            spriteWidth: 35, // Smaller
+            spriteWidth: 35,
             spriteHeight: 0,
-            speed: 8, // Quicker
+            speed: 8,
             turnSpeed: 0.1
         };
         const TASK_CONFIG = { width: 60, height: 60, collisionRadius: 40 };
@@ -128,7 +128,6 @@
         function drawLilies(){waterLilies.forEach(lily=>{if(useLilySprites&&lilyFrames.length>0){const frame=lilyFrames[lily.type];if(frame&&frame.complete&&frame.naturalWidth>0){const aspectRatio=frame.naturalHeight/frame.naturalWidth;const drawHeight=lily.width*aspectRatio;ctx.drawImage(frame,lily.x-lily.width/2,lily.y-drawHeight/2,lily.width,drawHeight)}else{drawSimpleLily(lily)}}else{drawSimpleLily(lily)}})}
         function drawSimpleDragonfly(d){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle);const wingFlap=Math.sin(performance.now()/50+d.animOffset)*5;ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(-15,-1,30,2);ctx.fillStyle='rgba(200,200,255,0.6)';ctx.fillRect(-10,-3-wingFlap,20,3);ctx.fillRect(-10,1+wingFlap,20,3);ctx.restore()}
         function drawDragonflies(){dragonflies.forEach(d=>{if(useDragonflySprites&&dragonflyFrames.length>0&&DRAGONFLY_CONFIG.spriteHeight>0){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle+Math.PI/2);const frameIndex=Math.floor((performance.now()+d.animOffset*500)/60)%dragonflyFrames.length;const frame=dragonflyFrames[frameIndex];ctx.drawImage(frame,-DRAGONFLY_CONFIG.spriteWidth/2,-DRAGONFLY_CONFIG.spriteHeight/2,DRAGONFLY_CONFIG.spriteWidth,DRAGONFLY_CONFIG.spriteHeight);ctx.restore()}else{drawSimpleDragonfly(d)}})}
-        
         function drawTask(task) {
             ctx.save();
             ctx.globalAlpha = task.alpha;
@@ -152,14 +151,67 @@
         function updateKoi(k,index,allKoi){for(let i=index+1;i<allKoi.length;i++){const other=allKoi[i];const dx=other.x-k.x,dy=other.y-k.y,dist=Math.sqrt(dx*dx+dy*dy),minDist=KOI_CONFIG.collisionRadius;if(dist<minDist){const angle=Math.atan2(dy,dx),overlap=minDist-dist,pushX=Math.cos(angle)*overlap*0.5,pushY=Math.sin(angle)*overlap*0.5;k.vx-=pushX;k.vy-=pushY;other.vx+=pushX;other.vy+=pushY}}let dx_t=k.target.x-k.x,dy_t=k.target.y-k.y,dist_t=Math.sqrt(dx_t*dx_t+dy_t*dy_t);if(dist_t<KOI_CONFIG.targetReachedThreshold){if(performance.now()-lastUserInteractionTime>WANDER_CONFIG.idleTime){k.target={x:Math.random()*width,y:Math.random()*height}}}if(dist_t>1){let tA=Math.atan2(dy_t,dx_t),aD=tA-k.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;k.angle+=aD*KOI_CONFIG.turnSpeed;k.vx+=Math.cos(k.angle)*KOI_CONFIG.speed*0.05;k.vy+=Math.sin(k.angle)*KOI_CONFIG.speed*0.05}k.vx*=0.96;k.vy*=0.96;let s=Math.sqrt(k.vx*k.vx+k.vy*k.vy);if(s>KOI_CONFIG.speed){k.vx=(k.vx/s)*KOI_CONFIG.speed;k.vy=(k.vy/s)*KOI_CONFIG.speed}k.x+=k.vx;k.y+=k.vy}
         function updateDragonfly(d){let dx=d.target.x-d.x,dy=d.target.y-d.y;if(Math.sqrt(dx*dx+dy*dy)<50){d.target={x:Math.random()*width,y:Math.random()*height}}let tA=Math.atan2(dy,dx),aD=tA-d.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;d.angle+=aD*DRAGONFLY_CONFIG.turnSpeed;d.x+=Math.cos(d.angle)*DRAGONFLY_CONFIG.speed;d.y+=Math.sin(d.angle)*DRAGONFLY_CONFIG.speed}
         
-        function updateTasks(task){
-            if(task.sinking){ task.scale-=0.01; task.alpha-=0.02; if(task.alpha<=0){tasks.splice(tasks.indexOf(task),1)} return; }
-            task.vx *= 0.98; task.vy *= 0.98;
-            koi_school.forEach(k=>{ const dx=k.x-task.x,dy=k.y-task.y,dist=Math.sqrt(dx*dx+dy*dy),minDist=TASK_CONFIG.collisionRadius; if(dist<minDist){ task.vx-=(dx/dist)*2; task.vy-=(dy/dist)*2; } });
-            const speed = Math.sqrt(task.vx*task.vx + task.vy*task.vy);
-            if(speed < 0.5){ const centerForce = 0.0005; task.vx += (width/2 - task.x) * centerForce; task.vy += (height/2 - task.y) * centerForce; }
-            task.x += task.vx; task.y += task.vy;
+        function updateTasks(task, index, allTasks) {
+            if (task.sinking) {
+                task.scale -= 0.01;
+                task.alpha -= 0.02;
+                if (task.alpha <= 0) tasks.splice(index, 1);
+                return;
+            }
+
+            // Task-on-task collision
+            for (let i = index + 1; i < allTasks.length; i++) {
+                const other = allTasks[i];
+                if (other.sinking) continue;
+
+                const dx = other.x - task.x;
+                const dy = other.y - task.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const minDist = (TASK_CONFIG.width + other.width) / 2 * 0.8; // Average radius
+
+                if (dist < minDist) {
+                    const angle = Math.atan2(dy, dx);
+                    const overlap = (minDist - dist) * 0.5;
+
+                    // Separate them
+                    task.x -= Math.cos(angle) * overlap;
+                    task.y -= Math.sin(angle) * overlap;
+                    other.x += Math.cos(angle) * overlap;
+                    other.y += Math.sin(angle) * overlap;
+                    
+                    // Bounce: swap velocities for a simple elastic collision
+                    const tempVx = task.vx;
+                    const tempVy = task.vy;
+                    task.vx = other.vx;
+                    task.vy = other.vy;
+                    other.vx = tempVx;
+                    other.vy = tempVy;
+                }
+            }
+
+            // Standard physics
+            task.vx *= 0.98;
+            task.vy *= 0.98;
+            koi_school.forEach(k => {
+                const dx = k.x - task.x;
+                const dy = k.y - task.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const minDist = TASK_CONFIG.collisionRadius;
+                if (dist < minDist) {
+                    task.vx -= (dx / dist) * 2;
+                    task.vy -= (dy / dist) * 2;
+                }
+            });
+            const speed = Math.sqrt(task.vx * task.vx + task.vy * task.vy);
+            if (speed < 0.5) {
+                const centerForce = 0.0005;
+                task.vx += (width / 2 - task.x) * centerForce;
+                task.vy += (height / 2 - task.y) * centerForce;
+            }
+            task.x += task.vx;
+            task.y += task.vy;
         }
+
 
         // --- Main Loop ---
         function loop(time) {
@@ -168,7 +220,7 @@
             
             koi_school.forEach((k, i) => updateKoi(k, i, koi_school));
             dragonflies.forEach(updateDragonfly);
-            tasks.forEach(updateTasks);
+            tasks.forEach((t, i) => updateTasks(t, i, tasks));
 
             drawBottomShapes();
             drawWaterShine(time);
