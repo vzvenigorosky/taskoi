@@ -11,7 +11,7 @@
     "sinking": false,
     "alpha": 1,
     "scale": 1
-  };
+  },
   {
     "title": "Restos",
     "text": "Before the 20th",
@@ -24,7 +24,7 @@
     "sinking": false,
     "alpha": 1,
     "scale": 1
-  };
+  },
   {
     "title": "APM Cant.",
     "text": "ASAP",
@@ -37,7 +37,7 @@
     "sinking": false,
     "alpha": 1,
     "scale": 1
-  };
+  },
   {
     "title": "Reulle",
     "text": "Wait for reviewers/editor",
