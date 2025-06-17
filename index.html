@@ -7,9 +7,14 @@
     <style>
         body { margin: 0; overflow: hidden; background: #000; -webkit-user-select: none; user-select: none; font-family: 'Avenir', 'Helvetica Neue', 'Segoe UI', sans-serif; }
         canvas { display: block; background: #0f3c3c; cursor: pointer; }
-        .ui-container { position: absolute; top: 15px; left: 15px; z-index: 10; display: flex; gap: 10px; }
+        .ui-container { position: absolute; top: 15px; left: 15px; z-index: 10; display: flex; flex-direction: column; gap: 10px; }
+        .ui-buttons-row { display: flex; gap: 10px; }
         .ui-button { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 10px 20px; border-radius: 20px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
         .ui-button:hover { background: rgba(0,0,0,0.6); }
+        #taskListContainer { display: none; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px; max-height: 40vh; overflow-y: auto; max-width: 300px; }
+        .task-list-item { background: rgba(255,255,255,0.05); border-radius: 5px; padding: 5px 10px; margin-bottom: 5px; text-align: left; }
+        .task-list-item h4 { margin: 0 0 3px 0; color: white; }
+        .task-list-item p { margin: 0; color: #a0aec0; font-size: 12px; }
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; justify-content: center; align-items: center; z-index: 20; }
         .modal-content { background: #1a202c; color: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); }
         .modal-content h2 { margin-top: 0; font-weight: 500; }
@@ -23,26 +28,16 @@
 </head>
 <body>
     <div id="uiContainer" class="ui-container">
-        <button id="addTaskButton" class="ui-button">Add Task</button>
-        <button id="saveTasksButton" class="ui-button">Save Tasks</button>
+        <div class="ui-buttons-row">
+            <button id="addTaskButton" class="ui-button">Add Task</button>
+            <button id="saveTasksButton" class="ui-button">Save Tasks</button>
+            <button id="toggleListButton" class="ui-button">Toggle List</button>
+        </div>
+        <div id="taskListContainer"></div>
     </div>
 
     <!-- Modals -->
-    <div id="addTaskModal" class="modal-overlay">
-        <div class="modal-content">
-            <h2>New Task</h2>
-            <input id="taskTitle" type="text" placeholder="Task Label (max 10 chars)" maxlength="10">
-            <textarea id="taskText" rows="4" placeholder="Full Task Description..."></textarea>
-            <div class="color-picker-container">
-                <label for="flagColor">Flag Color:</label>
-                <input id="flagColor" type="color" value="#ff6b6b">
-            </div>
-            <div class="modal-actions">
-                <button id="cancelTaskButton" class="ui-button">Cancel</button>
-                <button id="submitTaskButton" class="ui-button">Create</button>
-            </div>
-        </div>
-    </div>
+    <div id="addTaskModal" class="modal-overlay"> <div class="modal-content"> <h2>New Task</h2> <input id="taskTitle" type="text" placeholder="Task Label (max 10 chars)" maxlength="10"> <textarea id="taskText" rows="4" placeholder="Full Task Description..."></textarea> <div class="color-picker-container"> <label for="flagColor">Flag Color:</label> <input id="flagColor" type="color" value="#ff6b6b"> </div> <div class="modal-actions"> <button id="cancelTaskButton" class="ui-button">Cancel</button> <button id="submitTaskButton" class="ui-button">Create</button> </div> </div> </div>
     <div id="viewTaskModal" class="modal-overlay"> <div class="modal-content"> <h2 id="viewTaskTitle"></h2> <p id="viewTaskText"></p> <div class="modal-actions"> <button id="closeViewButton" class="ui-button">Close</button> <button id="destroyTaskButton" class="ui-button">Complete</button> </div> </div> </div>
 
     <div id="loader">Loading pond...</div>
@@ -57,21 +52,16 @@
 
         // --- Configuration ---
         const POND_CONFIG = { NUM_KOI: 11, NUM_LILIES: 32, NUM_DRAGONFLIES: 5 };
-        const KOI_CONFIG = { spriteWidth: 45, spriteHeight: 0, turnSpeed: 0.05, speed: 2.5, targetReachedThreshold: 30, animationSpeed: 100, collisionRadius: 40 };
-        const DRAGONFLY_CONFIG = {
-            spriteWidth: 35,
-            spriteHeight: 0,
-            speed: 8,
-            turnSpeed: 0.1
-        };
+        const KOI_CONFIG = { spriteWidth: 45, spriteHeight: 0, turnSpeed: 0.05, speed: 2.5, targetReachedThreshold: 30, animationSpeed: 100, collisionRadius: 25 };
+        const DRAGONFLY_CONFIG = { spriteWidth: 35, spriteHeight: 0, speed: 8, turnSpeed: 0.1 };
         const TASK_CONFIG = { width: 60, height: 60, collisionRadius: 40 };
-        const RIPPLE_CONFIG = { maxCount: 100, lineWidth: 1.5 };
-        const WANDER_CONFIG = { idleTime: 500 };
+        const RIPPLE_CONFIG = { maxCount: 200, lineWidth: 1.5 }; // Increased max ripples
+        const WANDER_CONFIG = { idleTime: 3000 };
 
         // --- State ---
         let koi_school = [], waterLilies = [], dragonflies = [], bottomShapes = [], tasks = [];
-        let ripples = [], lastUserInteractionTime = 0;
-        let masterTarget = { x: width / 2, y: height / 2 };
+        let ripples = [];
+        let isRaining = false;
 
         // --- Asset Management ---
         const koiFrames = [], lilyFrames = [], dragonflyFrames = [];
@@ -85,6 +75,8 @@
         // --- UI Elements ---
         const addTaskButton = document.getElementById('addTaskButton');
         const saveTasksButton = document.getElementById('saveTasksButton');
+        const toggleListButton = document.getElementById('toggleListButton');
+        const taskListContainer = document.getElementById('taskListContainer');
         const addTaskModal = document.getElementById('addTaskModal');
         const cancelTaskButton = document.getElementById('cancelTaskButton');
         const submitTaskButton = document.getElementById('submitTaskButton');
@@ -103,11 +95,9 @@
         function createCausticPattern(){for(let i=0;i<50;i++){causticCtx.fillStyle=`rgba(255,255,255,${Math.random()*0.05})`;causticCtx.beginPath();causticCtx.arc(Math.random()*causticSize,Math.random()*causticSize,Math.random()*30+10,0,Math.PI*2);causticCtx.fill()}}createCausticPattern();
         function drawWaterShine(time){ctx.save();ctx.globalCompositeOperation='soft-light';ctx.globalAlpha=0.4+Math.sin(time/2000)*0.2;const scale=1.5+Math.sin(time/1500)*0.2;const offsetX=Math.sin(time/2500)*width*0.2;const offsetY=Math.cos(time/2200)*height*0.2;ctx.translate(offsetX,offsetY);ctx.drawImage(causticCanvas,-width/2*scale,-height/2*scale,width*scale,height*scale);ctx.restore()}
         function drawBottomShapes(){bottomShapes.forEach(shape=>{ctx.fillStyle=shape.color;ctx.beginPath();ctx.arc(shape.x,shape.y,shape.radius,0,2*Math.PI);ctx.fill()})}
-        function createTouchRipple(x,y){for(let i=0;i<5;i++){if(ripples.length<RIPPLE_CONFIG.maxCount){ripples.push({x:x+(Math.random()-0.5)*50,y:y+(Math.random()-0.5)*50,radius:Math.random()*10,alpha:1,speed:Math.random()*0.5+0.5})}}}
-        function drawAndUpdateRipples(){ctx.lineWidth=RIPPLE_CONFIG.lineWidth;ripples.forEach((r,i)=>{r.radius+=r.speed;r.alpha-=0.01;if(r.alpha<=0){ripples.splice(i,1);return}ctx.beginPath();ctx.arc(r.x,r.y,r.radius,0,Math.PI*2);ctx.strokeStyle=`rgba(220,230,255,${r.alpha*0.7})`;ctx.stroke()})}
         
         async function loadData() {
-            const fetchTasks = fetch('tasks.json').then(response => { if (!response.ok) throw new Error('Tasks file not found'); return response.json(); }).then(loadedTasks => { loadedTasks.forEach(t => { t.vx = t.vx || 0; t.vy = t.vy || 0; t.sinking = t.sinking || false; t.alpha = t.alpha || 1; t.scale = t.scale || 1; }); tasks.push(...loadedTasks); }).catch(error => { console.log("No tasks.json found, starting fresh."); });
+            const fetchTasks = fetch('tasks.json').then(response => { if (!response.ok) throw new Error('Tasks file not found'); return response.json(); }).then(loadedTasks => { loadedTasks.forEach(t => { t.vx = t.vx || 0; t.vy = t.vy || 0; t.sinking = t.sinking || false; t.isBeingDestroyed = false; t.alpha = t.alpha || 1; t.scale = t.scale || 1; }); tasks.push(...loadedTasks); updateTaskListUI(); }).catch(error => { console.log("No tasks.json found, starting fresh."); });
             const loadImage = src => new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = reject; img.src = src; });
             const assetPromises = [fetchTasks];
             koiFrameSources.forEach(src => assetPromises.push(loadImage(src).then(img => koiFrames.push(img)).catch(() => useKoiSprites = false)));
@@ -128,171 +118,75 @@
         function drawLilies(){waterLilies.forEach(lily=>{if(useLilySprites&&lilyFrames.length>0){const frame=lilyFrames[lily.type];if(frame&&frame.complete&&frame.naturalWidth>0){const aspectRatio=frame.naturalHeight/frame.naturalWidth;const drawHeight=lily.width*aspectRatio;ctx.drawImage(frame,lily.x-lily.width/2,lily.y-drawHeight/2,lily.width,drawHeight)}else{drawSimpleLily(lily)}}else{drawSimpleLily(lily)}})}
         function drawSimpleDragonfly(d){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle);const wingFlap=Math.sin(performance.now()/50+d.animOffset)*5;ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(-15,-1,30,2);ctx.fillStyle='rgba(200,200,255,0.6)';ctx.fillRect(-10,-3-wingFlap,20,3);ctx.fillRect(-10,1+wingFlap,20,3);ctx.restore()}
         function drawDragonflies(){dragonflies.forEach(d=>{if(useDragonflySprites&&dragonflyFrames.length>0&&DRAGONFLY_CONFIG.spriteHeight>0){ctx.save();ctx.translate(d.x,d.y);ctx.rotate(d.angle+Math.PI/2);const frameIndex=Math.floor((performance.now()+d.animOffset*500)/60)%dragonflyFrames.length;const frame=dragonflyFrames[frameIndex];ctx.drawImage(frame,-DRAGONFLY_CONFIG.spriteWidth/2,-DRAGONFLY_CONFIG.spriteHeight/2,DRAGONFLY_CONFIG.spriteWidth,DRAGONFLY_CONFIG.spriteHeight);ctx.restore()}else{drawSimpleDragonfly(d)}})}
-        function drawTask(task) {
-            ctx.save();
-            ctx.globalAlpha = task.alpha;
-            ctx.translate(task.x, task.y);
-            ctx.rotate(task.angle);
-            const w = TASK_CONFIG.width * task.scale;
-            const h = TASK_CONFIG.height * task.scale;
-            if (useTaskSprite && taskImage.complete && taskImage.naturalWidth > 0) {
-                ctx.drawImage(taskImage, -w / 2, -h / 2, w, h);
-            } else {
-                ctx.fillStyle = 'rgba(139, 69, 19, 0.8)'; ctx.strokeStyle = 'rgba(101, 53, 15, 0.9)'; ctx.lineWidth = 3; ctx.strokeRect(-w / 2, -h / 2, w, h); ctx.fillRect(-w / 2, -h / 2, w, h);
-            }
-            const flagPoleHeight = h * 0.8, flagWidth = w * 1.2, flagHeight = h * 0.5;
-            ctx.fillStyle = '#666'; ctx.fillRect(w/2 - 2, -h/2 - flagPoleHeight, 4, flagPoleHeight);
-            ctx.fillStyle = task.flagColor; ctx.beginPath(); ctx.moveTo(w/2, -h/2 - flagPoleHeight); ctx.lineTo(w/2 + flagWidth, -h/2 - flagPoleHeight); ctx.lineTo(w/2 + flagWidth, -h/2 - flagPoleHeight + flagHeight); ctx.lineTo(w/2, -h/2 - flagPoleHeight + flagHeight); ctx.closePath(); ctx.fill();
-            ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `bold ${flagHeight * 0.5}px sans-serif`; ctx.fillText(task.title, w/2 + flagWidth / 2, -h/2 - flagPoleHeight + flagHeight / 2);
-            ctx.restore();
-        }
+        function drawTask(task){ctx.save();ctx.globalAlpha=task.alpha;ctx.translate(task.x,task.y);ctx.rotate(task.angle);const w=TASK_CONFIG.width*task.scale,h=TASK_CONFIG.height*task.scale;if(useTaskSprite&&taskImage.complete&&taskImage.naturalWidth>0){ctx.drawImage(taskImage,-w/2,-h/2,w,h)}else{ctx.fillStyle='rgba(139,69,19,0.8)';ctx.strokeStyle='rgba(101,53,15,0.9)';ctx.lineWidth=3;ctx.strokeRect(-w/2,-h/2,w,h);ctx.fillRect(-w/2,-h/2,w,h)}const flagPoleHeight=h*0.8,flagWidth=w*1.2,flagHeight=h*0.5;ctx.fillStyle='#666';ctx.fillRect(w/2-2,-h/2-flagPoleHeight,4,flagPoleHeight);ctx.fillStyle=task.flagColor;ctx.beginPath();ctx.moveTo(w/2,-h/2-flagPoleHeight);ctx.lineTo(w/2+flagWidth,-h/2-flagPoleHeight);ctx.lineTo(w/2+flagWidth,-h/2-flagPoleHeight+flagHeight);ctx.lineTo(w/2,-h/2-flagPoleHeight+flagHeight);ctx.closePath();ctx.fill();ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font=`bold ${flagHeight*0.5}px sans-serif`;ctx.fillText(task.title,w/2+flagWidth/2,-h/2-flagPoleHeight+flagHeight/2);ctx.restore()}
 
-        // --- Update Logic ---
-        function updateKoi(k,index,allKoi){for(let i=index+1;i<allKoi.length;i++){const other=allKoi[i];const dx=other.x-k.x,dy=other.y-k.y,dist=Math.sqrt(dx*dx+dy*dy),minDist=KOI_CONFIG.collisionRadius;if(dist<minDist){const angle=Math.atan2(dy,dx),overlap=minDist-dist,pushX=Math.cos(angle)*overlap*0.5,pushY=Math.sin(angle)*overlap*0.5;k.vx-=pushX;k.vy-=pushY;other.vx+=pushX;other.vy+=pushY}}let dx_t=k.target.x-k.x,dy_t=k.target.y-k.y,dist_t=Math.sqrt(dx_t*dx_t+dy_t*dy_t);if(dist_t<KOI_CONFIG.targetReachedThreshold){if(performance.now()-lastUserInteractionTime>WANDER_CONFIG.idleTime){k.target={x:Math.random()*width,y:Math.random()*height}}}if(dist_t>1){let tA=Math.atan2(dy_t,dx_t),aD=tA-k.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;k.angle+=aD*KOI_CONFIG.turnSpeed;k.vx+=Math.cos(k.angle)*KOI_CONFIG.speed*0.05;k.vy+=Math.sin(k.angle)*KOI_CONFIG.speed*0.05}k.vx*=0.96;k.vy*=0.96;let s=Math.sqrt(k.vx*k.vx+k.vy*k.vy);if(s>KOI_CONFIG.speed){k.vx=(k.vx/s)*KOI_CONFIG.speed;k.vy=(k.vy/s)*KOI_CONFIG.speed}k.x+=k.vx;k.y+=k.vy}
-        function updateDragonfly(d){let dx=d.target.x-d.x,dy=d.target.y-d.y;if(Math.sqrt(dx*dx+dy*dy)<50){d.target={x:Math.random()*width,y:Math.random()*height}}let tA=Math.atan2(dy,dx),aD=tA-d.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;d.angle+=aD*DRAGONFLY_CONFIG.turnSpeed;d.x+=Math.cos(d.angle)*DRAGONFLY_CONFIG.speed;d.y+=Math.sin(d.angle)*DRAGONFLY_CONFIG.speed}
+        // --- Ripples ---
+        function createRainRipple(){if(ripples.length<RIPPLE_CONFIG.maxCount){ripples.push({x:Math.random()*width,y:Math.random()*height,radius:0,alpha:Math.random()*0.3+0.2,speed:Math.random()*0.5+0.3,maxRadius:20+Math.random()*20})}}
+        function createTouchRipple(x,y){if(ripples.length<RIPPLE_CONFIG.maxCount){ripples.push({x,y,radius:0,alpha:1,speed:Math.random()*0.5+0.5,maxRadius:60+Math.random()*20})}}
+        function drawAndUpdateRipples(){ctx.lineWidth=RIPPLE_CONFIG.lineWidth;ripples.forEach((r,i)=>{r.radius+=r.speed;const fadePoint=r.maxRadius*0.7;if(r.radius>fadePoint){r.alpha=Math.max(0,r.alpha-0.02)}if(r.alpha<=0||r.radius>r.maxRadius){ripples.splice(i,1);return}ctx.beginPath();ctx.arc(r.x,r.y,r.radius,0,Math.PI*2);ctx.strokeStyle=`rgba(220,230,255,${r.alpha*0.7})`;ctx.stroke()})}
         
-        function updateTasks(task, index, allTasks) {
-            if (task.sinking) {
-                task.scale -= 0.01;
-                task.alpha -= 0.02;
-                if (task.alpha <= 0) tasks.splice(index, 1);
-                return;
-            }
-
-            // Task-on-task collision
-            for (let i = index + 1; i < allTasks.length; i++) {
-                const other = allTasks[i];
-                if (other.sinking) continue;
-
-                const dx = other.x - task.x;
-                const dy = other.y - task.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                
-                // FIX: Use a simple, non-rotated bounding box check for collision radius
-                const minDist = TASK_CONFIG.width; // Simplified radius for square/circle-like collision
-
-                if (dist < minDist) {
-                    const angle = Math.atan2(dy, dx);
-                    const overlap = (minDist - dist) * 0.5;
-
-                    // Separate them
-                    task.x -= Math.cos(angle) * overlap;
-                    task.y -= Math.sin(angle) * overlap;
-                    other.x += Math.cos(angle) * overlap;
-                    other.y += Math.sin(angle) * overlap;
-                    
-                    // Bounce: swap velocities for a simple elastic collision
-                    const tempVx = task.vx;
-                    const tempVy = task.vy;
-                    task.vx = other.vx;
-                    task.vy = other.vy;
-                    other.vx = tempVx;
-                    other.vy = tempVy;
-                }
-            }
-
-            // Standard physics
-            task.vx *= 0.98;
-            task.vy *= 0.98;
-            koi_school.forEach(k => {
-                const dx = k.x - task.x;
-                const dy = k.y - task.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const minDist = TASK_CONFIG.collisionRadius;
-                if (dist < minDist) {
-                    task.vx -= (dx / dist) * 2;
-                    task.vy -= (dy / dist) * 2;
-                }
-            });
-            const speed = Math.sqrt(task.vx * task.vx + task.vy * task.vy);
-            if (speed < 0.5) {
-                const centerForce = 0.0005;
-                task.vx += (width / 2 - task.x) * centerForce;
-                task.vy += (height / 2 - task.y) * centerForce;
-            }
-            task.x += task.vx;
-            task.y += task.vy;
+        // --- Update Logic ---
+        function updateKoi(k){
+            k.vx *= 0.96; k.vy *= 0.96;
+            koi_school.forEach(other=>{if(k===other)return;const dx=other.x-k.x,dy=other.y-k.y,dist=Math.hypot(dx,dy);if(dist<KOI_CONFIG.collisionRadius){const angle=Math.atan2(dy,dx),overlap=(KOI_CONFIG.collisionRadius-dist)*0.5;k.vx-=Math.cos(angle)*overlap*0.1;k.vy-=Math.sin(angle)*overlap*0.1}});
+            if(k.targetOverride){const distToOverride=Math.hypot(k.target.x-k.x,k.target.y-k.y);if(distToOverride<KOI_CONFIG.targetReachedThreshold){k.targetOverride=null;k.lastActionTime=performance.now()}}
+            if(!k.targetOverride&&performance.now()-k.lastActionTime>WANDER_CONFIG.idleTime){if(k.personality==='cheeky'&&tasks.length>0&&Math.random()<0.005){k.target=tasks[Math.floor(Math.random()*tasks.length)]}else if(k.personality==='helpful'&&tasks.length>0&&Math.random()<0.005){const strayTask=tasks.find(t=>t.x<100||t.x>width-100||t.y<100||t.y>height-100);if(strayTask){k.target={x:(strayTask.x+width/2)/2,y:(strayTask.y+height/2)/2}}}else{k.target={x:Math.random()*width,y:Math.random()*height}}k.lastActionTime=performance.now()}
+            const dx_t=k.target.x-k.x,dy_t=k.target.y-k.y,dist_t=Math.hypot(dx_t,dy_t);if(dist_t>1){let tA=Math.atan2(dy_t,dx_t),aD=tA-k.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;k.angle+=aD*KOI_CONFIG.turnSpeed;k.vx+=Math.cos(k.angle)*KOI_CONFIG.speed*0.05;k.vy+=Math.sin(k.angle)*KOI_CONFIG.speed*0.05}
+            let s=Math.sqrt(k.vx*k.vx+k.vy*k.vy);if(s>KOI_CONFIG.speed){k.vx=(k.vx/s)*KOI_CONFIG.speed;k.vy=(k.vy/s)*KOI_CONFIG.speed}k.x+=k.vx;k.y+=k.vy
         }
-
+        function updateDragonfly(d){let dx=d.target.x-d.x,dy=d.target.y-d.y;if(Math.sqrt(dx*dx+dy*dy)<50){d.target={x:Math.random()*width,y:Math.random()*height}}let tA=Math.atan2(dy,dx),aD=tA-d.angle;while(aD>Math.PI)aD-=2*Math.PI;while(aD<-Math.PI)aD+=2*Math.PI;d.angle+=aD*DRAGONFLY_CONFIG.turnSpeed;d.x+=Math.cos(d.angle)*DRAGONFLY_CONFIG.speed;d.y+=Math.sin(d.angle)*DRAGONFLY_CONFIG.speed}
+        function updateTasks(task,index,allTasks){if(task.isBeingDestroyed&&!task.sinking){task.vx+=(task.destroyTarget.x-task.x)*0.001;task.vy+=(task.destroyTarget.y-task.y)*0.001;const isOffScreen=task.x<-TASK_CONFIG.width||task.x>width+TASK_CONFIG.width||task.y<-TASK_CONFIG.height||task.y>height+TASK_CONFIG.height;if(isOffScreen)task.sinking=true}if(task.sinking){task.scale-=0.01;task.alpha-=0.02;if(task.alpha<=0){tasks.splice(index,1);updateTaskListUI()}return}for(let i=index+1;i<allTasks.length;i++){const other=allTasks[i];if(other.sinking)continue;const dx=other.x-task.x,dy=other.y-task.y,dist=Math.sqrt(dx*dx+dy*dy);const minDist=TASK_CONFIG.width;if(dist<minDist){const angle=Math.atan2(dy,dx),overlap=(minDist-dist)*0.5;task.x-=Math.cos(angle)*overlap;task.y-=Math.sin(angle)*overlap;other.x+=Math.cos(angle)*overlap;other.y+=Math.sin(angle)*overlap;const tempVx=task.vx,tempVy=task.vy;task.vx=other.vx;task.vy=other.vy;other.vx=tempVx;other.vy=tempVy}}task.vx*=0.98;task.vy*=0.98;koi_school.forEach(k=>{const dx=k.x-task.x,dy=k.y-task.y,dist=Math.sqrt(dx*dx+dy*dy),minDist=TASK_CONFIG.collisionRadius;if(dist<minDist){task.vx-=(dx/dist)*2;task.vy-=(dy/dist)*2}});const speed=Math.sqrt(task.vx*task.vx+task.vy*task.vy);if(speed<0.5&&!task.isBeingDestroyed){const centerForce=0.0005;task.vx+=(width/2-task.x)*centerForce;task.vy+=(height/2-task.y)*centerForce}task.x+=task.vx;task.y+=task.vy}
 
         // --- Main Loop ---
         function loop(time) {
-            ctx.fillStyle = '#0f3c3c';
-            ctx.fillRect(0, 0, width, height);
-            
-            koi_school.forEach((k, i) => updateKoi(k, i, koi_school));
+            ctx.fillStyle = '#0f3c3c'; ctx.fillRect(0, 0, width, height);
+            koi_school.forEach(updateKoi);
             dragonflies.forEach(updateDragonfly);
             tasks.forEach((t, i) => updateTasks(t, i, tasks));
-
-            drawBottomShapes();
-            drawWaterShine(time);
+            if(isRaining) { for(let i=0; i<10; i++) { createRainRipple(); } }
+            drawBottomShapes(); drawWaterShine(time);
             tasks.forEach(drawTask);
             koi_school.forEach(drawKoi);
-            drawLilies();
-            drawDragonflies();
-            drawAndUpdateRipples();
-            
+            drawLilies(); drawDragonflies(); drawAndUpdateRipples();
             requestAnimationFrame(loop);
         }
 
         // --- UI & Task Logic ---
-        addTaskButton.addEventListener('click', () => addTaskModal.style.display = 'flex');
-        cancelTaskButton.addEventListener('click', () => addTaskModal.style.display = 'none');
-        closeViewButton.addEventListener('click', () => viewTaskModal.style.display = 'none');
+        function updateTaskListUI(){taskListContainer.innerHTML='';tasks.filter(t=>!t.sinking&&!t.isBeingDestroyed).forEach(task=>{const item=document.createElement('div');item.className='task-list-item';item.innerHTML=`<h4>${task.title}</h4><p>${task.text}</p>`;item.style.borderLeft=`5px solid ${task.flagColor}`;taskListContainer.appendChild(item)})}
+        addTaskButton.addEventListener('click',()=>addTaskModal.style.display='flex');
+        cancelTaskButton.addEventListener('click',()=>addTaskModal.style.display='none');
+        closeViewButton.addEventListener('click',()=>viewTaskModal.style.display='none');
+        toggleListButton.addEventListener('click',()=>{const isHidden=taskListContainer.style.display==='none';taskListContainer.style.display=isHidden?'block':'none'});
+        submitTaskButton.addEventListener('click',()=>{const title=taskTitleInput.value.trim();const text=taskTextInput.value.trim();const flagColor=flagColorInput.value;if(title){tasks.push({title,text,flagColor,x:Math.random()*width,y:Math.random()*height,vx:0,vy:0,angle:Math.random()*Math.PI-Math.PI/2,sinking:false,alpha:1,scale:1});taskTitleInput.value='';taskTextInput.value='';addTaskModal.style.display='none';updateTaskListUI()}});
+        destroyTaskButton.addEventListener('click',()=>{if(activeTask){activeTask.isBeingDestroyed=true;const angle=Math.atan2(activeTask.y-height/2,activeTask.x-width/2)+Math.PI;const dist=Math.max(width,height);activeTask.destroyTarget={x:activeTask.x+Math.cos(angle)*dist,y:activeTask.y+Math.sin(angle)*dist};viewTaskModal.style.display='none';activeTask=null;updateTaskListUI()}});
+        saveTasksButton.addEventListener('click',()=>{const dataStr=JSON.stringify(tasks.filter(t=>!t.sinking&&!t.isBeingDestroyed),null,2);const dataBlob=new Blob([dataStr],{type:'application/json'});const url=URL.createObjectURL(dataBlob);const a=document.createElement('a');a.href=url;a.download='tasks.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)});
 
-        submitTaskButton.addEventListener('click', () => {
-            const title = taskTitleInput.value.trim();
-            const text = taskTextInput.value.trim();
-            const flagColor = flagColorInput.value;
-            if (title) {
-                tasks.push({ title, text, flagColor, x: Math.random() * width, y: Math.random() * height, vx: 0, vy: 0, angle: Math.random() * Math.PI - Math.PI/2, sinking: false, alpha: 1, scale: 1 });
-                taskTitleInput.value = ''; taskTextInput.value = '';
-                addTaskModal.style.display = 'none';
-            }
-        });
-
-        destroyTaskButton.addEventListener('click', () => { if (activeTask) { activeTask.sinking = true; viewTaskModal.style.display = 'none'; activeTask = null; } });
-        saveTasksButton.addEventListener('click', () => { const dataStr = JSON.stringify(tasks.filter(t => !t.sinking), null, 2); const dataBlob = new Blob([dataStr], {type: 'application/json'}); const url = URL.createObjectURL(dataBlob); const a = document.createElement('a'); a.href = url; a.download = 'tasks.json'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); });
-
-        function handleCanvasClick(e) {
-            const rect = canvas.getBoundingClientRect();
-            const clickX = e.clientX - rect.left;
-            const clickY = e.clientY - rect.top;
-            let taskClicked = false;
-            
-            for(let i = tasks.length - 1; i >= 0; i--) {
-                const task = tasks[i];
-                if (task.sinking) continue;
-                const matrix = new DOMMatrix().translate(task.x, task.y).rotate(task.angle * 180 / Math.PI);
-                const invMatrix = matrix.inverse();
-                const localClick = new DOMPoint(clickX, clickY).matrixTransform(invMatrix);
-                if (localClick.x > -TASK_CONFIG.width / 2 && localClick.x < TASK_CONFIG.width / 2 && localClick.y > -TASK_CONFIG.height / 2 && localClick.y < TASK_CONFIG.height / 2) {
-                    activeTask = task;
-                    viewTaskTitle.textContent = task.title;
-                    viewTaskText.textContent = task.text || "No description.";
-                    viewTaskModal.style.display = 'flex';
-                    taskClicked = true;
-                    break;
-                }
-            }
-            if (!taskClicked) {
-                lastUserInteractionTime=performance.now();
-                masterTarget={x:clickX,y:clickY};
-                koi_school.forEach(k=>k.target=masterTarget);
-                createTouchRipple(clickX,clickY)
-            }
-        }
+        function handleCanvasClick(e){const rect=canvas.getBoundingClientRect();const clickX=e.clientX-rect.left;const clickY=e.clientY-rect.top;let somethingClicked=false;for(let i=tasks.length-1;i>=0;i--){const task=tasks[i];if(task.sinking||task.isBeingDestroyed)continue;const matrix=new DOMMatrix().translate(task.x,task.y).rotate(task.angle*180/Math.PI);const invMatrix=matrix.inverse();const localClick=new DOMPoint(clickX,clickY).matrixTransform(invMatrix);if(localClick.x>-TASK_CONFIG.width/2&&localClick.x<TASK_CONFIG.width/2&&localClick.y>-TASK_CONFIG.height/2&&localClick.y<TASK_CONFIG.height/2){activeTask=task;viewTaskTitle.textContent=task.title;viewTaskText.textContent=task.text||"No description.";viewTaskModal.style.display='flex';somethingClicked=true;break}}if(somethingClicked)return;for(const k of koi_school){if(Math.hypot(clickX-k.x,clickY-k.y)<KOI_CONFIG.collisionRadius){const corners=[{x:50,y:50},{x:width-50,y:50},{x:width-50,y:height-50},{x:50,y:height-50}];k.targetOverride=corners[Math.floor(Math.random()*corners.length)];k.target=k.targetOverride;somethingClicked=true;break}}if(!somethingClicked){createTouchRipple(clickX,clickY)}}
 
         // --- Initialization ---
         function init() {
             for(let i=0; i<30; i++) { bottomShapes.push({ x: Math.random() * width, y: Math.random() * height, radius: Math.random() * 80 + 20, color: `rgba(10, 80, 60, ${Math.random() * 0.2 + 0.05})` }); }
-            if (koi_school.length === 0) { for (let i = 0; i < POND_CONFIG.NUM_KOI; i++) { koi_school.push({ x: Math.random() * width, y: Math.random() * height, vx: 0, vy: 0, angle: Math.random() * Math.PI * 2, target: { x: Math.random() * width, y: Math.random() * height }, animOffset: Math.random() * 1000, color: `hsl(${15 + Math.random() * 30}, 80%, 70%)` }); } }
-            for (let i = 0; i < POND_CONFIG.NUM_LILIES; i++) { waterLilies.push({ x: Math.random() * width, y: Math.random() * height, width: 60 + Math.random() * 40, type: Math.floor(Math.random() * lilyFrameSources.length) }); }
+            if (koi_school.length === 0) {
+                const personalities = ['neutral', 'cheeky', 'helpful'];
+                for (let i = 0; i < POND_CONFIG.NUM_KOI; i++) {
+                    koi_school.push({ x: Math.random() * width, y: Math.random() * height, vx: 0, vy: 0, angle: Math.random() * Math.PI * 2, target: { x: Math.random() * width, y: Math.random() * height }, animOffset: Math.random() * 1000, color: `hsl(${15 + Math.random() * 30}, 80%, 70%)`, personality: personalities[i % personalities.length], lastActionTime: 0, targetOverride: null });
+                }
+            }
+            for (let i = 0; i < POND_CONFIG.NUM_LILIES; i++) {
+                let x, y, size, overlaps; let attempts = 0;
+                do { overlaps = false; x = Math.random() * width; y = Math.random() * height; size = 60 + Math.random() * 40; for (const other of waterLilies) { if (Math.hypot(x - other.x, y - other.y) < (size + other.width) / 2) { overlaps = true; break; } } attempts++; } while (overlaps && attempts < 20);
+                waterLilies.push({ x, y, width: size, type: Math.floor(Math.random() * lilyFrameSources.length) });
+            }
             for (let i = 0; i < POND_CONFIG.NUM_DRAGONFLIES; i++) { dragonflies.push({ x: Math.random() * width, y: Math.random() * height, angle: Math.random() * Math.PI * 2, target: { x: Math.random() * width, y: Math.random() * height }, animOffset: Math.random() * 1000 }); }
 
             canvas.addEventListener('pointerdown', handleCanvasClick);
             window.addEventListener('resize', () => { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; });
             
+            setInterval(() => {
+                isRaining = true;
+                setTimeout(() => { isRaining = false; }, 5000 + Math.random() * 5000); // Longer rain
+            }, 10000 + Math.random() * 10000);
+
             loop(0);
         }
         
