@@ -167,7 +167,9 @@
                 const dx = other.x - task.x;
                 const dy = other.y - task.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
-                const minDist = (TASK_CONFIG.width + other.width) / 2 * 0.8; // Average radius
+                
+                // FIX: Use a simple, non-rotated bounding box check for collision radius
+                const minDist = TASK_CONFIG.width; // Simplified radius for square/circle-like collision
 
                 if (dist < minDist) {
                     const angle = Math.atan2(dy, dx);
